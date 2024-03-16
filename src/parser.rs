@@ -7,6 +7,7 @@ use nom::{
     sequence::{delimited, preceded, Tuple},
     Err, IResult,
 };
+use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
 use thiserror::Error;
 
@@ -22,7 +23,7 @@ enum ParseError<I> {
     Nom(I, nom::error::ErrorKind),
 }
 
-type Input<'a> = &'a str;
+type Input<'a> = LocatedSpan<&'a str>;
 
 impl<I> nom::error::ParseError<I> for ParseError<I> {
     fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
@@ -41,7 +42,7 @@ fn string(input: Input) -> IResult<Input, String, ParseError<Input>> {
         char('"'),
     ))(input)?;
 
-    let parsed_string: String = serde_json::from_str(raw_string)
+    let parsed_string: String = serde_json::from_str(raw_string.as_ref())
         .or(Err(Err::Failure(ParseError::MalformedString(raw_string))))?;
 
     Ok((rest, parsed_string))
@@ -69,8 +70,8 @@ fn include_directive(input: Input) -> IResult<Input, Directive, ParseError<Input
 
 #[test]
 fn parse_string() {
-    dbg!(string(r#""this is a string! I will say \"Hello, world!\", ok?""#).unwrap());
-    dbg!(line_comment(r#"; this is a comment, ashuidasj"#).unwrap());
-    dbg!(include_directive(r#"#include "./test/tcp.rtconfig.txt""#).unwrap());
-    dbg!(include_directive(r#"#include    "./test/tcp.rtconfig.txt"  "#).unwrap());
+    dbg!(string(r#""this is a string! I will say \"Hello, world!\", ok?""#.into()).unwrap());
+    dbg!(line_comment(r#"; this is a comment, ashuidasj"#.into()).unwrap());
+    dbg!(include_directive(r#"#include "./test/tcp.rtconfig.txt""#.into()).unwrap());
+    dbg!(include_directive(r#"#include    "./test/tcp.rtconfig.txt"  "#.into()).unwrap());
 }
