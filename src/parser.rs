@@ -293,12 +293,21 @@ fn rtconfig_newline(input: Input) -> Result<RtconfigContent> {
 fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
     tuple((
         many0(rtconfig_newline),
-        separated_list1(many1(rtconfig_newline), rtconfig_line),
+        tuple((
+            rtconfig_line,
+            many0(
+                tuple((many1(rtconfig_newline), rtconfig_line)).map(|(mut nl, mut c)| {
+                    nl.append(&mut c);
+                    nl
+                }),
+            ),
+        )),
         many0(rtconfig_newline),
     ))
-    .map(|(nl1, contents, nl2)| {
+    .map(|(nl1, (c1, c2), nl2)| {
         nl1.into_iter()
-            .chain(contents.into_iter().flatten())
+            .chain(c1.into_iter())
+            .chain(c2.into_iter().flatten())
             .chain(nl2.into_iter())
             .collect::<Vec<_>>()
     })
