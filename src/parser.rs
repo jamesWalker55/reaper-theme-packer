@@ -21,6 +21,8 @@ enum ParseError<I> {
     NotRelativePath(I),
     #[error("invalid glob pattern `{0}`")]
     InvalidGlobPattern(I),
+    #[error("unknown directive `{0}`")]
+    UnknownDirective(I),
     #[error("invalid syntax: {0:?}")]
     Nom(I, nom::error::ErrorKind),
 }
@@ -57,15 +59,11 @@ fn line_comment(input: Input) -> Result {
 }
 
 #[derive(Debug)]
-enum Directive<'a> {
+enum Directive {
     Include(RelativePathBuf),
     Resource {
         pattern: glob::Pattern,
         dest: RelativePathBuf,
-    },
-    Unknown {
-        name: Input<'a>,
-        contents: Input<'a>,
     },
 }
 
@@ -112,10 +110,10 @@ fn resource_directive(input: Input) -> Result<Directive> {
     Ok((rest, Directive::Resource { pattern, dest }))
 }
 
-fn unknown_directive(input: Input) -> Result<Directive> {
+fn unknown_directive(input: Input) -> Result {
     let (rest, (_, name, contents)) = (char('#'), alpha1, take_till(|x| x == '\n')).parse(input)?;
 
-    Ok((rest, Directive::Unknown { name, contents }))
+    Err(Err::Failure(ParseError::UnknownDirective(input)))
 }
 
 #[cfg(test)]
@@ -130,9 +128,8 @@ mod tests {
     where
         O: Debug,
     {
-        dbg!(&result);
-
         let result = result.finish();
+        dbg!(&result);
         assert!(result.is_ok(), "should be ok: {:?}", result);
 
         let result = result.unwrap();
@@ -148,14 +145,24 @@ mod tests {
     where
         O: Debug,
     {
-        dbg!(&result);
-
         let result = result.finish();
+        dbg!(&result);
         match result {
             Ok(result) => {
                 assert!(result.0.len() > 0, "should be err: {:?}", result);
             }
             Err(_) => (),
+        }
+    }
+
+    fn irrecoverable<'a, O>(result: Result<'a, O>)
+    where
+        O: Debug,
+    {
+        dbg!(&result);
+        match result {
+            Err(Err::Failure(_)) => (),
+            _ => panic!("should be Err::Failure"),
         }
     }
 
@@ -182,13 +189,13 @@ mod tests {
             r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
         ));
 
-        ok(unknown_directive(
+        irrecoverable(unknown_directive(
             r#"#include "./test/tcp.rtconfig.txt""#.into(),
         ));
-        ok(unknown_directive(
+        irrecoverable(unknown_directive(
             r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
         ));
-        ok(unknown_directive(
+        irrecoverable(unknown_directive(
             r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
         ));
 
