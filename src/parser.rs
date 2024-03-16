@@ -249,14 +249,14 @@ enum RtconfigContent<'a> {
 fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
     // the line (excluding comments)
     alt((
+        // a directive, has higher priority because 'walter_code()' can also match directives
+        preceded(space0, directive).map(|x| vec![RtconfigContent::Directive(x)]),
         // a standard line of code
         many1(alt((
             walter_code.map(|x| RtconfigContent::Code(x)),
             // an expression can span multiple lines, this is intentional
             expression.map(|x| RtconfigContent::Expression(x)),
         ))),
-        // a directive
-        directive.map(|x| vec![RtconfigContent::Directive(x)]),
     ))(input)
 }
 
