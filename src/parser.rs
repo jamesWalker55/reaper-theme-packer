@@ -231,6 +231,7 @@ enum RtconfigContent<'a> {
     Expression(Input<'a>),
     #[serde(serialize_with = "serialise_span")]
     Comment(Input<'a>),
+    #[serde(with = "serde_yaml::with::singleton_map")]
     Directive(Directive<'a>),
 }
 
@@ -415,11 +416,7 @@ mod tests {
         let result = rtconfig(text.as_str().into()).finish();
         match result {
             Ok((rest, contents)) => {
-                std::fs::write(
-                    "./parsed.json",
-                    serde_json::to_string_pretty(&contents).unwrap(),
-                )
-                .unwrap();
+                std::fs::write("./parsed.yaml", serde_yaml::to_string(&contents).unwrap()).unwrap();
 
                 if rest.len() > 0 {
                     panic!(
