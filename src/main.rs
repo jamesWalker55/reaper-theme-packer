@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    reaper_theme_builder_2::hello();
 }
