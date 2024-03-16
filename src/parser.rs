@@ -260,7 +260,6 @@ fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
 /// _(\* The exception is expressions, which can span multiple lines)_
 fn rtconfig_line(input: Input) -> Result<Vec<RtconfigContent>> {
     alt((
-        rtconfig_line_commentless,
         pair(rtconfig_line_commentless, opt(comment)).map(|(mut contents, cmt)| {
             if let Some(cmt) = cmt {
                 contents.push(RtconfigContent::Comment(cmt));
