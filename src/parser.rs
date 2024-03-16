@@ -202,30 +202,21 @@ fn allowed_walter_hash_char(input: Input) -> Result {
     // check that it begins with a hash sign
     let result = tag("#")(input)?;
 
-    // disallow directives and expression
+    // disallow expressions
     let expr = expression(input);
     if expr.is_ok() {
         // this hash belongs to an expression, not WALTER code
-        return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
-    }
-    let dir = directive(input);
-    if dir.is_ok() {
-        // this hash belongs to a directive, not WALTER code
-        return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
-    }
-    if let Err(Err::Failure(_)) = dir {
-        // this hash belongs to a failed and locked-in directive, not WALTER code
         return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
     }
 
     Ok(result)
 }
 
-/// WALTER code, can span multiple lines.
-/// This doesn't include comments
+/// WALTER code, excluding expressions.
+/// This allows hash characters in it, e.g. for macro interpolation: 'set master.##element element'
 fn walter_code(input: Input) -> Result {
     recognize(many1(alt((
-        take_till1(|x| x == '#' || x == ';'),
+        take_till1(|x| x == '\n' || x == '#' || x == ';'),
         allowed_walter_hash_char,
     ))))(input)
 }
@@ -254,7 +245,7 @@ enum RtconfigContent<'a> {
 ///
 /// Each line is separated by one or more newlines.
 ///
-/// _(\* The exception is WALTER code, which can span multiple lines)_
+/// _(\* The exception is expressions, which can span multiple lines)_
 fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
     // the line (excluding comments)
     alt((
@@ -273,7 +264,7 @@ fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
 ///
 /// Each line is separated by one or more newlines.
 ///
-/// _(\* The exception is WALTER code, which can span multiple lines)_
+/// _(\* The exception is expressions, which can span multiple lines)_
 fn rtconfig_line(input: Input) -> Result<Vec<RtconfigContent>> {
     alt((
         pair(rtconfig_line_commentless, opt(comment)).map(|(mut contents, cmt)| {
@@ -429,7 +420,7 @@ mod tests {
         ok((walter_code, expression, walter_code).parse("hello world #{ 1+1 } ibhsdkasj".into()));
         ok((walter_code, expression, walter_code)
             .parse("hello world #{ 1\n+\n1 } ibhsdkasj".into()));
-        ok((walter_code, expression, walter_code)
+        bad((walter_code, expression, walter_code)
             .parse("hello \nworld #{ 1\n+\n1 } ibhsdkasj".into()));
         bad(walter_code("".into()));
     }
