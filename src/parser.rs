@@ -84,7 +84,7 @@ where
 }
 
 #[derive(Debug, Serialize)]
-enum Directive {
+enum Directive<'a> {
     #[serde(serialize_with = "serialise_relpathbuf")]
     Include(RelativePathBuf),
     Resource {
@@ -92,6 +92,12 @@ enum Directive {
         pattern: glob::Pattern,
         #[serde(serialize_with = "serialise_relpathbuf")]
         dest: RelativePathBuf,
+    },
+    Unknown {
+        #[serde(serialize_with = "serialise_span")]
+        name: Input<'a>,
+        #[serde(serialize_with = "serialise_span")]
+        contents: Input<'a>,
     },
 }
 
@@ -142,9 +148,9 @@ fn resource_directive(input: Input) -> Result<Directive> {
 }
 
 fn unknown_directive(input: Input) -> Result<Directive> {
-    let (rest, result) = recognize(tuple((char('#'), alpha1, take_till(|x| x == '\n'))))(input)?;
+    let (rest, (_, name, contents)) = tuple((char('#'), alpha1, take_till(|x| x == '\n')))(input)?;
 
-    Err(Err::Failure(ParseError::UnknownDirective(result)))
+    Ok((rest, Directive::Unknown { name, contents }))
 }
 
 fn directive(input: Input) -> Result<Directive> {
@@ -211,7 +217,7 @@ enum RtconfigContent<'a> {
     Expression(Input<'a>),
     #[serde(serialize_with = "serialise_span")]
     Comment(Input<'a>),
-    Directive(Directive),
+    Directive(Directive<'a>),
 }
 
 fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
