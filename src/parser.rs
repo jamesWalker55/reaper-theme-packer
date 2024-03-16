@@ -27,7 +27,7 @@ enum ParseError<I> {
 
 type Input<'a> = LocatedSpan<&'a str>;
 
-type Result<'a, O = Input<'a>, I = Input<'a>, E = ParseError<I>> = IResult<I, O, E>;
+type Result<'a, O = Input<'a>> = IResult<Input<'a>, O, ParseError<Input<'a>>>;
 
 impl<I> nom::error::ParseError<I> for ParseError<I> {
     fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
@@ -126,10 +126,9 @@ mod tests {
 
     use super::*;
 
-    fn ok<'a, O, E>(result: Result<'a, O, Input, E>)
+    fn ok<'a, O>(result: Result<'a, O>)
     where
         O: Debug,
-        E: Debug,
     {
         dbg!(&result);
 
@@ -145,10 +144,9 @@ mod tests {
         );
     }
 
-    fn bad<'a, O, E>(result: Result<'a, O, Input, E>)
+    fn bad<'a, O>(result: Result<'a, O>)
     where
         O: Debug,
-        E: Debug,
     {
         dbg!(&result);
 
@@ -198,7 +196,9 @@ mod tests {
         ok(resource_directive(r#"#resource    "./*.png"  "#.into()));
         ok(resource_directive(r#"#resource "./knob.png""#.into()));
         ok(resource_directive(r#"#resource "150": "./*.png""#.into()));
-        ok(resource_directive(r#"#resource "150" : "./*.png""#.into()));
+        ok(resource_directive(
+            r#"#resource    "150" : "./*.png"    "#.into(),
+        ));
         bad(resource_directive(r#"#resource "150" "./*.png""#.into()));
         bad(resource_directive(r#"#resource "C:/knob.png""#.into()));
     }
