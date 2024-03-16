@@ -5,7 +5,7 @@ use nom::{
     character::complete::{alpha1, char, newline, space0, space1},
     combinator::recognize,
     sequence::{delimited, preceded, Tuple},
-    Err, IResult,
+    Err, Finish, IResult,
 };
 use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
@@ -25,6 +25,8 @@ enum ParseError<I> {
 
 type Input<'a> = LocatedSpan<&'a str>;
 
+type Result<'a, O = Input<'a>, I = Input<'a>, E = ParseError<I>> = IResult<I, O, E>;
+
 impl<I> nom::error::ParseError<I> for ParseError<I> {
     fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
         ParseError::Nom(input, kind)
@@ -35,7 +37,7 @@ impl<I> nom::error::ParseError<I> for ParseError<I> {
     }
 }
 
-fn string(input: Input) -> IResult<Input, String, ParseError<Input>> {
+fn string(input: Input) -> Result<String> {
     let (rest, raw_string) = recognize(delimited(
         char('"'),
         escaped(take_till1(|x| x == '"' || x == '\\'), '\\', take(1usize)),
@@ -48,7 +50,7 @@ fn string(input: Input) -> IResult<Input, String, ParseError<Input>> {
     Ok((rest, parsed_string))
 }
 
-fn line_comment(input: Input) -> IResult<Input, Input, ParseError<Input>> {
+fn line_comment(input: Input) -> Result {
     recognize(preceded(char(';'), take_till(|x| x == '\n')))(input)
 }
 
@@ -57,7 +59,7 @@ enum Directive {
     Include(RelativePathBuf),
 }
 
-fn include_directive(input: Input) -> IResult<Input, Directive, ParseError<Input>> {
+fn include_directive(input: Input) -> Result<Directive> {
     let (rest, (_, _, path, _)) = (tag("#include"), space1, string, space0).parse(input)?;
 
     let path =
@@ -68,10 +70,59 @@ fn include_directive(input: Input) -> IResult<Input, Directive, ParseError<Input
     Ok((rest, Directive::Include(path)))
 }
 
-#[test]
-fn parse_string() {
-    dbg!(string(r#""this is a string! I will say \"Hello, world!\", ok?""#.into()).unwrap());
-    dbg!(line_comment(r#"; this is a comment, ashuidasj"#.into()).unwrap());
-    dbg!(include_directive(r#"#include "./test/tcp.rtconfig.txt""#.into()).unwrap());
-    dbg!(include_directive(r#"#include    "./test/tcp.rtconfig.txt"  "#.into()).unwrap());
+#[cfg(test)]
+mod tests {
+    use std::fmt::Debug;
+
+    use super::*;
+
+    fn ok<'a, O, E>(result: Result<'a, O, Input, E>)
+    where
+        O: Debug,
+        E: Debug,
+    {
+        let result = result.finish();
+        assert!(result.is_ok(), "{:?}", result);
+
+        let result = result.unwrap();
+        assert_eq!(
+            result.0.len(),
+            0,
+            "not all of input was consumed, {:?}",
+            result
+        );
+    }
+
+    fn bad<'a, O, E>(result: Result<'a, O, Input, E>)
+    where
+        O: Debug,
+        E: Debug,
+    {
+        let result = result.finish();
+        assert!(result.is_err(), "{:?}", result);
+    }
+
+    #[test]
+    fn parse_string() {
+        ok(string(r#""this is a string!""#.into()));
+        ok(string(r#""I will say \"Hello, world!\", ok?""#.into()));
+        bad(string(
+            r#""I'm gonna asd\a\sd\a\\asdasad\\as\d\as\d\a""#.into(),
+        ));
+        ok(string(r#""I'm gonna \\n fake new line""#.into()));
+        bad(string(r#""I'm gonna \""#.into()));
+
+        ok(line_comment(r#"; this is a comment, ashuidasj"#.into()));
+        ok(line_comment(r#"; this is a comment, ashuidasj  "#.into()));
+
+        ok(include_directive(
+            r#"#include "./test/tcp.rtconfig.txt""#.into(),
+        ));
+        ok(include_directive(
+            r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
+        ));
+        bad(include_directive(
+            r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
+        ));
+    }
 }
