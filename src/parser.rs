@@ -221,9 +221,11 @@ fn allowed_walter_hash_char(input: Input) -> Result {
     Ok(result)
 }
 
+/// WALTER code, can span multiple lines.
+/// This doesn't include comments
 fn walter_code(input: Input) -> Result {
     recognize(many1(alt((
-        take_till1(|x| x == '\n' || x == '#' || x == ';'),
+        take_till1(|x| x == '#' || x == ';'),
         allowed_walter_hash_char,
     ))))(input)
 }
@@ -252,7 +254,7 @@ enum RtconfigContent<'a> {
 ///
 /// Each line is separated by one or more newlines.
 ///
-/// _(\* The exception is expressions, which can span multiple lines)_
+/// _(\* The exception is WALTER code, which can span multiple lines)_
 fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
     // the line (excluding comments)
     alt((
@@ -271,7 +273,7 @@ fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
 ///
 /// Each line is separated by one or more newlines.
 ///
-/// _(\* The exception is expressions, which can span multiple lines)_
+/// _(\* The exception is WALTER code, which can span multiple lines)_
 fn rtconfig_line(input: Input) -> Result<Vec<RtconfigContent>> {
     alt((
         pair(rtconfig_line_commentless, opt(comment)).map(|(mut contents, cmt)| {
@@ -418,7 +420,7 @@ mod tests {
         ok((walter_code, expression, walter_code).parse("hello world #{ 1+1 } ibhsdkasj".into()));
         ok((walter_code, expression, walter_code)
             .parse("hello world #{ 1\n+\n1 } ibhsdkasj".into()));
-        bad((walter_code, expression, walter_code)
+        ok((walter_code, expression, walter_code)
             .parse("hello \nworld #{ 1\n+\n1 } ibhsdkasj".into()));
         bad(walter_code("".into()));
     }
