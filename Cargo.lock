@@ -502,6 +502,7 @@ dependencies = [
  "nom_locate",
  "relative-path",
  "rust-ini",
+ "serde",
  "serde_json",
  "thiserror",
  "zip",

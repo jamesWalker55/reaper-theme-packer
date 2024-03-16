@@ -11,6 +11,7 @@ use nom::{
 };
 use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
+use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -62,11 +63,34 @@ fn comment(input: Input) -> Result {
     recognize(preceded(char(';'), take_till(|x| x == '\n')))(input)
 }
 
-#[derive(Debug)]
+fn serialise_relpathbuf<S>(
+    dest: &RelativePathBuf,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(dest.as_str())
+}
+
+fn serialise_pattern<S>(
+    pattern: &glob::Pattern,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(pattern.as_str())
+}
+
+#[derive(Debug, Serialize)]
 enum Directive {
+    #[serde(serialize_with = "serialise_relpathbuf")]
     Include(RelativePathBuf),
     Resource {
+        #[serde(serialize_with = "serialise_pattern")]
         pattern: glob::Pattern,
+        #[serde(serialize_with = "serialise_relpathbuf")]
         dest: RelativePathBuf,
     },
 }
@@ -171,11 +195,21 @@ fn walter_code(input: Input) -> Result {
     ))))(input)
 }
 
-#[derive(Debug)]
+fn serialise_span<S>(input: &Input, serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(input.as_ref())
+}
+
+#[derive(Debug, Serialize)]
 enum RtconfigContent<'a> {
     Newline,
+    #[serde(serialize_with = "serialise_span")]
     Code(Input<'a>),
+    #[serde(serialize_with = "serialise_span")]
     Expression(Input<'a>),
+    #[serde(serialize_with = "serialise_span")]
     Comment(Input<'a>),
     Directive(Directive),
 }
@@ -346,7 +380,11 @@ mod tests {
         let result = rtconfig(text.as_str().into()).finish();
         match result {
             Ok((rest, contents)) => {
-                std::fs::write("./temp.txt", format!("{:?}", contents)).unwrap();
+                std::fs::write(
+                    "./parsed.json",
+                    serde_json::to_string_pretty(&contents).unwrap(),
+                )
+                .unwrap();
 
                 if rest.len() > 0 {
                     panic!(
