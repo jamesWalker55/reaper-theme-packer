@@ -53,7 +53,11 @@ impl<I> nom::error::ParseError<I> for ParseError<I> {
 fn string(input: Input) -> Result<(String, Input)> {
     let (rest, raw_string) = recognize(delimited(
         char('"'),
-        escaped(take_till1(|x| x == '"' || x == '\\'), '\\', take(1usize)),
+        opt(escaped(
+            take_till1(|x| x == '"' || x == '\\'),
+            '\\',
+            take(1usize),
+        )),
         char('"'),
     ))(input)?;
 
