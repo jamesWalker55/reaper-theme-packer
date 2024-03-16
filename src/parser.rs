@@ -5,9 +5,9 @@ use nom::{
     bytes::complete::{escaped, tag, take, take_till, take_till1},
     character::complete::{alpha1, char, space0, space1},
     combinator::{opt, recognize},
-    multi::many0,
+    multi::{many0, many1},
     sequence::{delimited, preceded, terminated, tuple, Tuple},
-    Err, IResult,
+    Err, IResult, Slice,
 };
 use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
@@ -25,6 +25,8 @@ enum ParseError<I> {
     InvalidGlobPattern(I),
     #[error("unknown directive `{0}`")]
     UnknownDirective(I),
+    #[error("hash char is walter code `{0}`")]
+    WALTERHash(I),
     #[error("invalid syntax: {0:?}")]
     Nom(I, nom::error::ErrorKind),
 }
@@ -43,7 +45,7 @@ impl<I> nom::error::ParseError<I> for ParseError<I> {
     }
 }
 
-fn string(input: Input) -> Result<String> {
+fn string(input: Input) -> Result<(String, Input)> {
     let (rest, raw_string) = recognize(delimited(
         char('"'),
         escaped(take_till1(|x| x == '"' || x == '\\'), '\\', take(1usize)),
@@ -53,7 +55,7 @@ fn string(input: Input) -> Result<String> {
     let parsed_string: String = serde_json::from_str(raw_string.as_ref())
         .or(Err(Err::Failure(ParseError::MalformedString(raw_string))))?;
 
-    Ok((rest, parsed_string))
+    Ok((rest, (parsed_string, raw_string)))
 }
 
 fn line_comment(input: Input) -> Result {
@@ -69,28 +71,28 @@ enum Directive {
     },
 }
 
-fn relative_path_string(input: Input) -> Result<RelativePathBuf> {
-    let (rest, raw_string) = string(input)?;
+fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
+    let (rest, (parsed_string, raw_string)) = string(input)?;
 
     // convert to PathBuf, may be absolute
-    let path = PathBuf::from_str(raw_string.as_str())
-        .or(Err(Err::Failure(ParseError::MalformedPath(input))))?;
+    let path = PathBuf::from_str(parsed_string.as_str())
+        .or(Err(Err::Failure(ParseError::MalformedPath(raw_string))))?;
     // convert to RelativePathBuf, must be relative now
     let path = RelativePathBuf::from_path(path)
-        .or(Err(Err::Failure(ParseError::NotRelativePath(input))))?;
+        .or(Err(Err::Failure(ParseError::NotRelativePath(raw_string))))?;
 
-    Ok((rest, path))
+    Ok((rest, (path, raw_string)))
 }
 
 fn include_directive(input: Input) -> Result<Directive> {
-    let (rest, (_, _, path, _)) =
+    let (rest, (_, _, (path, raw_string), _)) =
         (tag("#include"), space1, relative_path_string, space0).parse(input)?;
 
     Ok((rest, Directive::Include(path)))
 }
 
 fn resource_directive(input: Input) -> Result<Directive> {
-    let (rest, (_, _, dest, pattern, _)) = (
+    let (rest, (_, _, dest, (pattern, raw_pattern), _)) = (
         tag("#resource"),
         space1,
         opt(terminated(
@@ -103,30 +105,33 @@ fn resource_directive(input: Input) -> Result<Directive> {
         .parse(input)?;
 
     // default destination to "."
-    let dest = dest.unwrap_or(RelativePathBuf::from("."));
+    let dest = dest
+        .and_then(|x| Some(x.0))
+        .unwrap_or(RelativePathBuf::from("."));
 
     // parse pattern
-    let pattern = glob::Pattern::new(pattern.as_str())
-        .or(Err(Err::Failure(ParseError::InvalidGlobPattern(input))))?;
+    let pattern = glob::Pattern::new(pattern.as_str()).or(Err(Err::Failure(
+        ParseError::InvalidGlobPattern(raw_pattern),
+    )))?;
 
     Ok((rest, Directive::Resource { pattern, dest }))
 }
 
 fn unknown_directive(input: Input) -> Result<Directive> {
-    let (rest, (_, name, contents)) = (char('#'), alpha1, take_till(|x| x == '\n')).parse(input)?;
+    let (rest, result) = recognize(tuple((char('#'), alpha1, take_till(|x| x == '\n'))))(input)?;
 
-    Err(Err::Failure(ParseError::UnknownDirective(input)))
+    Err(Err::Failure(ParseError::UnknownDirective(result)))
 }
 
 fn directive(input: Input) -> Result<Directive> {
     alt((include_directive, resource_directive, unknown_directive))(input)
 }
 
-/// Recognise text within brace pairs. E.g. `"{Hello!}"` will return `"Hello!"`
-fn brace_contents(input: Input) -> Result {
+/// Recognise text with brace pairs. E.g. `"{ Hello! {Nested} }"` will return `"{ Hello! {Nested} }"`
+fn brace_pair(input: Input) -> Result {
     recognize(tuple((
         char('{'),
-        many0(alt((take_till1(|x| x == '{' || x == '}'), brace_contents))),
+        many0(alt((take_till1(|x| x == '{' || x == '}'), brace_pair))),
         char('}'),
     )))(input)
 }
@@ -135,9 +140,38 @@ fn brace_contents(input: Input) -> Result {
 struct Expression<'a>(Input<'a>);
 
 fn expression(input: Input) -> Result<Expression> {
-    let (rest, result) = preceded(char('#'), brace_contents)(input)?;
+    let (rest, result) = preceded(char('#'), brace_pair)(input)?;
+
+    // trim the left and right braces
+    let result = result.slice(1..(result.len() - 1));
 
     Ok((rest, Expression(result)))
+}
+
+fn allowed_walter_hash_char(input: Input) -> Result {
+    // check that it begins with a hash sign
+    let result = tag("#")(input)?;
+
+    // disallow directives and expression
+    let expr = expression(input);
+    if expr.is_ok() {
+        // this hash belongs to an expression, not WALTER code
+        return Err(Err::Error(ParseError::WALTERHash(input)));
+    }
+    let dir = directive(input);
+    if dir.is_ok() {
+        // this hash belongs to a directive, not WALTER code
+        return Err(Err::Error(ParseError::WALTERHash(input)));
+    }
+
+    Ok(result)
+}
+
+fn walter_code(input: Input) -> Result {
+    recognize(many1(alt((
+        take_till1(|x| x == '\n' || x == '#'),
+        allowed_walter_hash_char,
+    ))))(input)
 }
 
 #[cfg(test)]
@@ -233,20 +267,27 @@ mod tests {
         bad(resource_directive(r#"#resource "150" "./*.png""#.into()));
         bad(resource_directive(r#"#resource "C:/knob.png""#.into()));
 
-        ok(brace_contents(r#"{}"#.into()));
-        ok(brace_contents(r#"{ 1 + 1 }"#.into()));
-        ok(brace_contents(r#"{ apple }"#.into()));
-        ok(brace_contents(r#"{ {a: 1, b: 2} }"#.into()));
-        ok(brace_contents(r#"{ {a: 1, b: {c: 2, d: 3}} }"#.into()));
-        ok(brace_contents(
-            "{ {a: 1,\n b: \n{c: \n2,\n \nd: 3}} }".into(),
-        ));
-        bad(brace_contents(r#"{ } }"#.into()));
-        bad(brace_contents(r#"{ }{ }"#.into()));
-        bad(brace_contents(r#"{ { }"#.into()));
-        bad(brace_contents(r#""#.into()));
+        ok(brace_pair(r#"{}"#.into()));
+        ok(brace_pair(r#"{ 1 + 1 }"#.into()));
+        ok(brace_pair(r#"{ apple }"#.into()));
+        ok(brace_pair(r#"{ {a: 1, b: 2} }"#.into()));
+        ok(brace_pair(r#"{ {a: 1, b: {c: 2, d: 3}} }"#.into()));
+        ok(brace_pair("{ {a: 1,\n b: \n{c: \n2,\n \nd: 3}} }".into()));
+        bad(brace_pair(r#"{ } }"#.into()));
+        bad(brace_pair(r#"{ }{ }"#.into()));
+        bad(brace_pair(r#"{ { }"#.into()));
+        bad(brace_pair(r#""#.into()));
 
         ok(expression(r#"#{ {a: 1, b: {c: 2, d: 3}} }"#.into()));
         bad(expression(r#"# { {a: 1, b: {c: 2, d: 3}} }"#.into()));
+
+        ok(walter_code("hello world".into()));
+        ok(walter_code("hello world # ibhsdkasj".into()));
+        bad(walter_code("hello world #{ 1+1 } ibhsdkasj".into()));
+        ok((walter_code, expression, walter_code).parse("hello world #{ 1+1 } ibhsdkasj".into()));
+        ok((walter_code, expression, walter_code)
+            .parse("hello world #{ 1\n+\n1 } ibhsdkasj".into()));
+        bad((walter_code, expression, walter_code)
+            .parse("hello \nworld #{ 1\n+\n1 } ibhsdkasj".into()));
     }
 }
