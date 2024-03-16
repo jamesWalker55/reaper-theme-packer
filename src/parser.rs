@@ -1,9 +1,11 @@
 use std::{path::PathBuf, str::FromStr};
 
 use nom::{
+    branch::alt,
     bytes::complete::{escaped, tag, take, take_till, take_till1},
     character::complete::{alpha1, char, space0, space1},
     combinator::{opt, recognize},
+    multi::many0,
     sequence::{delimited, preceded, terminated, tuple, Tuple},
     Err, IResult,
 };
@@ -110,10 +112,32 @@ fn resource_directive(input: Input) -> Result<Directive> {
     Ok((rest, Directive::Resource { pattern, dest }))
 }
 
-fn unknown_directive(input: Input) -> Result {
+fn unknown_directive(input: Input) -> Result<Directive> {
     let (rest, (_, name, contents)) = (char('#'), alpha1, take_till(|x| x == '\n')).parse(input)?;
 
     Err(Err::Failure(ParseError::UnknownDirective(input)))
+}
+
+fn directive(input: Input) -> Result<Directive> {
+    alt((include_directive, resource_directive, unknown_directive))(input)
+}
+
+/// Recognise text within brace pairs. E.g. `"{Hello!}"` will return `"Hello!"`
+fn brace_contents(input: Input) -> Result {
+    recognize(tuple((
+        char('{'),
+        many0(alt((take_till1(|x| x == '{' || x == '}'), brace_contents))),
+        char('}'),
+    )))(input)
+}
+
+#[derive(Debug)]
+struct Expression<'a>(Input<'a>);
+
+fn expression(input: Input) -> Result<Expression> {
+    let (rest, result) = preceded(char('#'), brace_contents)(input)?;
+
+    Ok((rest, Expression(result)))
 }
 
 #[cfg(test)]
@@ -208,5 +232,21 @@ mod tests {
         ));
         bad(resource_directive(r#"#resource "150" "./*.png""#.into()));
         bad(resource_directive(r#"#resource "C:/knob.png""#.into()));
+
+        ok(brace_contents(r#"{}"#.into()));
+        ok(brace_contents(r#"{ 1 + 1 }"#.into()));
+        ok(brace_contents(r#"{ apple }"#.into()));
+        ok(brace_contents(r#"{ {a: 1, b: 2} }"#.into()));
+        ok(brace_contents(r#"{ {a: 1, b: {c: 2, d: 3}} }"#.into()));
+        ok(brace_contents(
+            "{ {a: 1,\n b: \n{c: \n2,\n \nd: 3}} }".into(),
+        ));
+        bad(brace_contents(r#"{ } }"#.into()));
+        bad(brace_contents(r#"{ }{ }"#.into()));
+        bad(brace_contents(r#"{ { }"#.into()));
+        bad(brace_contents(r#""#.into()));
+
+        ok(expression(r#"#{ {a: 1, b: {c: 2, d: 3}} }"#.into()));
+        bad(expression(r#"# { {a: 1, b: {c: 2, d: 3}} }"#.into()));
     }
 }
