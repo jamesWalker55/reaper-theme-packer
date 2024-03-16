@@ -316,7 +316,7 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
+    use std::{borrow::Cow, fmt::Debug};
 
     use nom::{combinator::all_consuming, Finish};
 
@@ -442,6 +442,31 @@ mod tests {
         match result {
             Ok((rest, contents)) => {
                 std::fs::write("./parsed.yaml", serde_yaml::to_string(&contents).unwrap()).unwrap();
+
+                let result: String = contents
+                    .iter()
+                    .map(|x| match x {
+                        RtconfigContent::Newline => Cow::from("\n"),
+                        RtconfigContent::Code(text) => {
+                            Cow::from(<LocatedSpan<&str> as AsRef<str>>::as_ref(text))
+                        }
+                        RtconfigContent::Expression(text) => format!("#{{{text}}}").into(),
+                        RtconfigContent::Comment(text) => {
+                            Cow::from(<LocatedSpan<&str> as AsRef<str>>::as_ref(text))
+                        }
+                        RtconfigContent::Directive(dir) => match dir {
+                            Directive::Include(path) => format!("#include \"{path}\"").into(),
+                            Directive::Resource { pattern, dest } => {
+                                format!("#resource \"{dest}\": \"{pattern}\"").into()
+                            }
+                            Directive::Unknown { name, contents } => {
+                                format!("#UNKNOWN ; #{name}{contents}").into()
+                            }
+                        },
+                    })
+                    .collect();
+
+                std::fs::write("./parsed.rtconfig.txt", result).unwrap();
 
                 if rest.len() > 0 {
                     panic!(
