@@ -3,6 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use ini::Ini;
 use theme::BuildOptions;
 
+mod parser;
 mod theme;
 
 pub fn setup_logging() {
@@ -19,7 +20,8 @@ pub fn main() {
     let theme = theme::Theme::new(
         "temp",
         "; this is rtconfig code",
-        Ini::load_from_str("[config]\nhello=world").unwrap(),
+        Ini::load_from_str("[config]\nhello=world\n# this is a comment :)))\ntest=123\nhash=#asd")
+            .unwrap(),
         HashMap::from([("a".into(), ".gitignore".into())]),
     );
     theme
