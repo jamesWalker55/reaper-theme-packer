@@ -5,8 +5,8 @@ use nom::{
     bytes::complete::{escaped, tag, take, take_till, take_till1},
     character::complete::{alpha1, char, newline, space0, space1},
     combinator::{cut, opt, recognize},
-    multi::{many0, many1},
-    sequence::{delimited, preceded, terminated, tuple, Tuple},
+    multi::{many0, many1, separated_list1},
+    sequence::{delimited, pair, preceded, terminated, tuple, Tuple},
     Err, IResult, Parser, Slice,
 };
 use nom_locate::LocatedSpan;
@@ -28,6 +28,10 @@ enum ParseError<I> {
     UnknownDirective(I),
     #[error("hash char is not walter code `{0}`")]
     NonWALTERHash(I),
+    #[error("incorrect #include syntax `{0}`")]
+    MalformedIncludeDirective(I),
+    #[error("incorrect #resource syntax `{0}`")]
+    MalformedResourceDirective(I),
     #[error("invalid syntax: {0:?}")]
     Nom(I, nom::error::ErrorKind),
 }
@@ -115,15 +119,17 @@ fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
 }
 
 fn include_directive(input: Input) -> Result<Directive> {
-    let (rest, _) = tag("#include")(input)?;
-    let (rest, (path, _raw_string)) = cut(delimited(space1, relative_path_string, space0))(rest)?;
+    let (rest, tag) = tag("#include")(input)?;
+    let (rest, (path, _raw_string)) = delimited(space1, relative_path_string, space0)(rest).or(
+        Err(Err::Failure(ParseError::MalformedIncludeDirective(tag))),
+    )?;
 
     Ok((rest, Directive::Include(path)))
 }
 
 fn resource_directive(input: Input) -> Result<Directive> {
-    let (rest, _) = tag("#resource")(input)?;
-    let (rest, (dest, (pattern, raw_pattern))) = cut(delimited(
+    let (rest, tag) = tag("#resource")(input)?;
+    let (rest, (dest, (pattern, raw_pattern))) = delimited(
         space1,
         tuple((
             opt(terminated(
@@ -133,7 +139,10 @@ fn resource_directive(input: Input) -> Result<Directive> {
             relative_path_string,
         )),
         space0,
-    ))(rest)?;
+    )(rest)
+    .or(Err(Err::Failure(ParseError::MalformedResourceDirective(
+        tag,
+    ))))?;
 
     // default destination to "."
     let dest = dest
@@ -225,66 +234,60 @@ enum RtconfigContent<'a> {
     Directive(Directive<'a>),
 }
 
+/// Parse a single commentless "line" of a rtconfig.txt. \*
+///
+/// Each line is separated by one or more newlines.
+///
+/// _(\* The exception is expressions, which can span multiple lines)_
+fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
+    // the line (excluding comments)
+    alt((
+        // a standard line of code
+        many1(alt((
+            walter_code.map(|x| RtconfigContent::Code(x)),
+            // an expression can span multiple lines, this is intentional
+            expression.map(|x| RtconfigContent::Expression(x)),
+        ))),
+        // a directive
+        directive.map(|x| vec![RtconfigContent::Directive(x)]),
+    ))(input)
+}
+
+/// Parse a single "line" of a rtconfig.txt. \*
+///
+/// Each line is separated by one or more newlines.
+///
+/// _(\* The exception is expressions, which can span multiple lines)_
+fn rtconfig_line(input: Input) -> Result<Vec<RtconfigContent>> {
+    alt((
+        rtconfig_line_commentless,
+        pair(rtconfig_line_commentless, opt(comment)).map(|(mut contents, cmt)| {
+            if let Some(cmt) = cmt {
+                contents.push(RtconfigContent::Comment(cmt));
+            }
+            contents
+        }),
+        comment.map(|x| vec![RtconfigContent::Comment(x)]),
+    ))(input)
+}
+
+fn rtconfig_newline(input: Input) -> Result<RtconfigContent> {
+    newline.map(|_| RtconfigContent::Newline).parse(input)
+}
+
 fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
-    let mut result: Vec<RtconfigContent> = vec![];
-    let mut input = input;
-
-    loop {
-        // try to parse normal code
-        match tuple((
-            many1(alt((
-                walter_code.map(|x| RtconfigContent::Code(x)),
-                // an expression can span multiple lines, this is intentional
-                expression.map(|x| RtconfigContent::Expression(x)),
-            ))),
-            opt(comment),
-        ))(input)
-        {
-            Ok((rest, (mut contents, comment))) => {
-                result.append(&mut contents);
-                if let Some(comment) = comment {
-                    result.push(RtconfigContent::Comment(comment));
-                }
-                input = rest;
-            }
-            Err(Err::Failure(err)) => {
-                return Err(Err::Failure(err));
-            }
-            _ => match tuple((directive, opt(comment)))(input) {
-                Ok((rest, (dir, comment))) => {
-                    result.push(RtconfigContent::Directive(dir));
-                    if let Some(comment) = comment {
-                        result.push(RtconfigContent::Comment(comment));
-                    }
-                    input = rest;
-                }
-                Err(Err::Failure(err)) => {
-                    return Err(Err::Failure(err));
-                }
-                _ => match comment(input) {
-                    Ok((rest, comment)) => {
-                        result.push(RtconfigContent::Comment(comment));
-                        input = rest;
-                    }
-                    Err(Err::Failure(err)) => {
-                        return Err(Err::Failure(err));
-                    }
-                    _ => (),
-                },
-            },
-        }
-
-        // try to parse a newline
-        if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
-            // successfully taken newline, move on to the next line
-            result.push(RtconfigContent::Newline);
-            input = rest;
-            continue;
-        }
-
-        // failed to continue parsing, this must be end of file
-        return Ok((input, result));
-    }
+    tuple((
+        many0(rtconfig_newline),
+        separated_list1(many1(rtconfig_newline), rtconfig_line),
+        many0(rtconfig_newline),
+    ))
+    .map(|(nl1, contents, nl2)| {
+        nl1.into_iter()
+            .chain(contents.into_iter().flatten())
+            .chain(nl2.into_iter())
+            .collect::<Vec<_>>()
+    })
+    .parse(input)
 }
 
 #[cfg(test)]
@@ -410,7 +413,7 @@ mod tests {
     fn test_rtconfig() {
         let text = std::fs::read_to_string("test/test.rtconfig.txt").unwrap();
 
-        let result = all_consuming(rtconfig)(text.as_str().into()).finish();
+        let result = rtconfig(text.as_str().into()).finish();
         match result {
             Ok((rest, contents)) => {
                 std::fs::write(
