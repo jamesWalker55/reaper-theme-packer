@@ -184,6 +184,8 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 
     loop {
         // try to parse normal code
+        let mut parsed_something_this_loop = false;
+
         let walter_line = many1(alt((
             walter_code.map(|x| RtconfigContent::Code(x)),
             // an expression can span multiple lines, this is intentional
@@ -192,36 +194,24 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
         if let Ok((rest, mut contents)) = walter_line {
             result.append(&mut contents);
             input = rest;
-
-            // end of this line, try to take a newline
-            if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
-                // successfully taken newline, time to parse the next line
-                result.push(RtconfigContent::Newline);
-                input = rest;
-                continue;
-            }
-
-            // failed to take newline, this must be end of file
-            return Ok((input, result));
-        };
-
-        if let Ok((rest, dir)) = directive(input) {
+            parsed_something_this_loop = true;
+        } else if let Ok((rest, dir)) = directive(input) {
             result.push(RtconfigContent::Directive(dir));
             input = rest;
+            parsed_something_this_loop = true;
+        }
 
-            // end of this line, try to take a newline
+        if parsed_something_this_loop {
+            // successfully parsd a line, try to parse a newline
             if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
-                // successfully taken newline, time to parse the next line
+                // successfully taken newline, move on to the next line
                 result.push(RtconfigContent::Newline);
                 input = rest;
                 continue;
             }
-
-            // failed to take newline, this must be end of file
-            return Ok((input, result));
         }
 
-        // failed to parse directive or normal code, this must be end of file
+        // failed to continue parsing, this must be end of file
         return Ok((input, result));
     }
 }
