@@ -124,8 +124,8 @@ fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
 
 fn include_directive(input: Input) -> Result<Directive> {
     let (rest, tag) = tag("#include")(input)?;
-    let (rest, (path, _raw_string)) = delimited(space1, relative_path_string, space0)(rest)
-        .map_err(|err| {
+    let (rest, (path, _raw_string)) =
+        preceded(space1, relative_path_string)(rest).map_err(|err| {
             if matches!(err, Err::Failure(_)) {
                 err
             } else {
@@ -138,7 +138,7 @@ fn include_directive(input: Input) -> Result<Directive> {
 
 fn resource_directive(input: Input) -> Result<Directive> {
     let (rest, tag) = tag("#resource")(input)?;
-    let (rest, (dest, (pattern, raw_pattern))) = delimited(
+    let (rest, (dest, (pattern, raw_pattern))) = preceded(
         space1,
         tuple((
             opt(terminated(
@@ -147,7 +147,6 @@ fn resource_directive(input: Input) -> Result<Directive> {
             )),
             relative_path_string,
         )),
-        space0,
     )(rest)
     .map_err(|err| {
         if matches!(err, Err::Failure(_)) {
@@ -250,7 +249,7 @@ fn rtconfig_line_commentless(input: Input) -> Result<Vec<RtconfigContent>> {
     // the line (excluding comments)
     alt((
         // a directive, has higher priority because 'walter_code()' can also match directives
-        preceded(space0, directive).map(|x| vec![RtconfigContent::Directive(x)]),
+        delimited(space0, directive, space0).map(|x| vec![RtconfigContent::Directive(x)]),
         // a standard line of code
         many1(alt((
             walter_code.map(|x| RtconfigContent::Code(x)),
