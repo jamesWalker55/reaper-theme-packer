@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::{escaped, tag, take, take_till, take_till1},
     character::complete::{alpha1, char, newline, space0, space1},
-    combinator::{opt, recognize},
+    combinator::{cut, opt, recognize},
     multi::{many0, many1},
     sequence::{delimited, preceded, terminated, tuple, Tuple},
     Err, IResult, Parser, Slice,
@@ -26,8 +26,8 @@ enum ParseError<I> {
     InvalidGlobPattern(I),
     #[error("unknown directive `{0}`")]
     UnknownDirective(I),
-    #[error("hash char is walter code `{0}`")]
-    WALTERHash(I),
+    #[error("hash char is not walter code `{0}`")]
+    NonWALTERHash(I),
     #[error("invalid syntax: {0:?}")]
     Nom(I, nom::error::ErrorKind),
 }
@@ -115,24 +115,25 @@ fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
 }
 
 fn include_directive(input: Input) -> Result<Directive> {
-    let (rest, (_, _, (path, raw_string), _)) =
-        (tag("#include"), space1, relative_path_string, space0).parse(input)?;
+    let (rest, _) = tag("#include")(input)?;
+    let (rest, (path, _raw_string)) = cut(delimited(space1, relative_path_string, space0))(rest)?;
 
     Ok((rest, Directive::Include(path)))
 }
 
 fn resource_directive(input: Input) -> Result<Directive> {
-    let (rest, (_, _, dest, (pattern, raw_pattern), _)) = (
-        tag("#resource"),
+    let (rest, _) = tag("#resource")(input)?;
+    let (rest, (dest, (pattern, raw_pattern))) = cut(delimited(
         space1,
-        opt(terminated(
+        tuple((
+            opt(terminated(
+                relative_path_string,
+                tuple((space0, char(':'), space0)),
+            )),
             relative_path_string,
-            tuple((space0, char(':'), space0)),
         )),
-        relative_path_string,
         space0,
-    )
-        .parse(input)?;
+    ))(rest)?;
 
     // default destination to "."
     let dest = dest
@@ -183,12 +184,16 @@ fn allowed_walter_hash_char(input: Input) -> Result {
     let expr = expression(input);
     if expr.is_ok() {
         // this hash belongs to an expression, not WALTER code
-        return Err(Err::Error(ParseError::WALTERHash(input)));
+        return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
     }
     let dir = directive(input);
     if dir.is_ok() {
         // this hash belongs to a directive, not WALTER code
-        return Err(Err::Error(ParseError::WALTERHash(input)));
+        return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
+    }
+    if let Err(Err::Failure(_)) = dir {
+        // this hash belongs to a failed and locked-in directive, not WALTER code
+        return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
     }
 
     Ok(result)
@@ -196,7 +201,7 @@ fn allowed_walter_hash_char(input: Input) -> Result {
 
 fn walter_code(input: Input) -> Result {
     recognize(many1(alt((
-        take_till1(|x| x == '\n' || x == '#'),
+        take_till1(|x| x == '\n' || x == '#' || x == ';'),
         allowed_walter_hash_char,
     ))))(input)
 }
@@ -226,28 +231,50 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 
     loop {
         // try to parse normal code
-        let mut parsed_something_this_loop = false;
-
-        let walter_line = many1(alt((
-            walter_code.map(|x| RtconfigContent::Code(x)),
-            // an expression can span multiple lines, this is intentional
-            expression.map(|x| RtconfigContent::Expression(x)),
-        )))(input);
-        if let Ok((rest, mut contents)) = walter_line {
-            result.append(&mut contents);
-            input = rest;
-            parsed_something_this_loop = true;
-        } else if let Ok((rest, dir)) = directive(input) {
-            result.push(RtconfigContent::Directive(dir));
-            input = rest;
-            parsed_something_this_loop = true;
-        } else if let Ok((rest, comment)) = comment(input) {
-            result.push(RtconfigContent::Comment(comment));
-            input = rest;
-            parsed_something_this_loop = true;
+        match tuple((
+            many1(alt((
+                walter_code.map(|x| RtconfigContent::Code(x)),
+                // an expression can span multiple lines, this is intentional
+                expression.map(|x| RtconfigContent::Expression(x)),
+            ))),
+            opt(comment),
+        ))(input)
+        {
+            Ok((rest, (mut contents, comment))) => {
+                result.append(&mut contents);
+                if let Some(comment) = comment {
+                    result.push(RtconfigContent::Comment(comment));
+                }
+                input = rest;
+            }
+            Err(Err::Failure(err)) => {
+                return Err(Err::Failure(err));
+            }
+            _ => match tuple((directive, opt(comment)))(input) {
+                Ok((rest, (dir, comment))) => {
+                    result.push(RtconfigContent::Directive(dir));
+                    if let Some(comment) = comment {
+                        result.push(RtconfigContent::Comment(comment));
+                    }
+                    input = rest;
+                }
+                Err(Err::Failure(err)) => {
+                    return Err(Err::Failure(err));
+                }
+                _ => match comment(input) {
+                    Ok((rest, comment)) => {
+                        result.push(RtconfigContent::Comment(comment));
+                        input = rest;
+                    }
+                    Err(Err::Failure(err)) => {
+                        return Err(Err::Failure(err));
+                    }
+                    _ => (),
+                },
+            },
         }
 
-        // successfully parsd a line, try to parse a newline
+        // try to parse a newline
         if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
             // successfully taken newline, move on to the next line
             result.push(RtconfigContent::Newline);
@@ -264,7 +291,7 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 mod tests {
     use std::fmt::Debug;
 
-    use nom::Finish;
+    use nom::{combinator::all_consuming, Finish};
 
     use super::*;
 
@@ -383,7 +410,7 @@ mod tests {
     fn test_rtconfig() {
         let text = std::fs::read_to_string("test/test.rtconfig.txt").unwrap();
 
-        let result = rtconfig(text.as_str().into()).finish();
+        let result = all_consuming(rtconfig)(text.as_str().into()).finish();
         match result {
             Ok((rest, contents)) => {
                 std::fs::write(
@@ -401,7 +428,7 @@ mod tests {
                 }
             }
             Err(result) => {
-                panic!("failed to even start parsing document!");
+                panic!("failed to even start parsing document! {:?}", result);
             }
         }
     }
