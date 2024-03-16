@@ -13,7 +13,7 @@ pub fn setup_logging() {
     env_logger::init_from_env(env);
 }
 
-pub fn hello() {
+pub fn main() {
     setup_logging();
 
     let theme = theme::Theme::new(
