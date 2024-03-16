@@ -3,11 +3,11 @@ use std::{path::PathBuf, str::FromStr};
 use nom::{
     branch::alt,
     bytes::complete::{escaped, tag, take, take_till, take_till1},
-    character::complete::{alpha1, char, space0, space1},
+    character::complete::{alpha1, char, newline, space0, space1},
     combinator::{opt, recognize},
     multi::{many0, many1},
     sequence::{delimited, preceded, terminated, tuple, Tuple},
-    Err, IResult, Slice,
+    Err, IResult, Parser, Slice,
 };
 use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
@@ -136,16 +136,13 @@ fn brace_pair(input: Input) -> Result {
     )))(input)
 }
 
-#[derive(Debug)]
-struct Expression<'a>(Input<'a>);
-
-fn expression(input: Input) -> Result<Expression> {
+fn expression(input: Input) -> Result {
     let (rest, result) = preceded(char('#'), brace_pair)(input)?;
 
     // trim the left and right braces
     let result = result.slice(1..(result.len() - 1));
 
-    Ok((rest, Expression(result)))
+    Ok((rest, result))
 }
 
 fn allowed_walter_hash_char(input: Input) -> Result {
@@ -172,6 +169,61 @@ fn walter_code(input: Input) -> Result {
         take_till1(|x| x == '\n' || x == '#'),
         allowed_walter_hash_char,
     ))))(input)
+}
+
+enum RtconfigContent<'a> {
+    Newline,
+    Code(Input<'a>),
+    Expression(Input<'a>),
+    Directive(Directive),
+}
+
+fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
+    let mut result: Vec<RtconfigContent> = vec![];
+    let mut input = input;
+
+    loop {
+        // try to parse normal code
+        let walter_line = many1(alt((
+            walter_code.map(|x| RtconfigContent::Code(x)),
+            // an expression can span multiple lines, this is intentional
+            expression.map(|x| RtconfigContent::Expression(x)),
+        )))(input);
+        if let Ok((rest, mut contents)) = walter_line {
+            result.append(&mut contents);
+            input = rest;
+
+            // end of this line, try to take a newline
+            if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
+                // successfully taken newline, time to parse the next line
+                result.push(RtconfigContent::Newline);
+                input = rest;
+                continue;
+            }
+
+            // failed to take newline, this must be end of file
+            return Ok((input, result));
+        };
+
+        if let Ok((rest, dir)) = directive(input) {
+            result.push(RtconfigContent::Directive(dir));
+            input = rest;
+
+            // end of this line, try to take a newline
+            if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
+                // successfully taken newline, time to parse the next line
+                result.push(RtconfigContent::Newline);
+                input = rest;
+                continue;
+            }
+
+            // failed to take newline, this must be end of file
+            return Ok((input, result));
+        }
+
+        // failed to parse directive or normal code, this must be end of file
+        return Ok((input, result));
+    }
 }
 
 #[cfg(test)]
@@ -280,6 +332,7 @@ mod tests {
 
         ok(expression(r#"#{ {a: 1, b: {c: 2, d: 3}} }"#.into()));
         bad(expression(r#"# { {a: 1, b: {c: 2, d: 3}} }"#.into()));
+        bad(expression(r#""#.into()));
 
         ok(walter_code("hello world".into()));
         ok(walter_code("hello world # ibhsdkasj".into()));
@@ -289,5 +342,6 @@ mod tests {
             .parse("hello world #{ 1\n+\n1 } ibhsdkasj".into()));
         bad((walter_code, expression, walter_code)
             .parse("hello \nworld #{ 1\n+\n1 } ibhsdkasj".into()));
+        bad(walter_code("".into()));
     }
 }
