@@ -2,10 +2,10 @@ use std::{path::PathBuf, str::FromStr};
 
 use nom::{
     bytes::complete::{escaped, tag, take, take_till, take_till1},
-    character::complete::{alpha1, char, newline, space0, space1},
+    character::complete::{alpha1, char, space0, space1},
     combinator::recognize,
     sequence::{delimited, preceded, Tuple},
-    Err, Finish, IResult,
+    Err, IResult,
 };
 use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
@@ -55,8 +55,12 @@ fn line_comment(input: Input) -> Result {
 }
 
 #[derive(Debug)]
-enum Directive {
+enum Directive<'a> {
     Include(RelativePathBuf),
+    Unknown {
+        name: Input<'a>,
+        contents: Input<'a>,
+    },
 }
 
 fn include_directive(input: Input) -> Result<Directive> {
@@ -70,9 +74,17 @@ fn include_directive(input: Input) -> Result<Directive> {
     Ok((rest, Directive::Include(path)))
 }
 
+fn unknown_directive(input: Input) -> Result<Directive> {
+    let (rest, (_, name, contents)) = (char('#'), alpha1, take_till(|x| x == '\n')).parse(input)?;
+
+    Ok((rest, Directive::Unknown { name, contents }))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Debug;
+
+    use nom::Finish;
 
     use super::*;
 
@@ -81,6 +93,8 @@ mod tests {
         O: Debug,
         E: Debug,
     {
+        dbg!(&result);
+
         let result = result.finish();
         assert!(result.is_ok(), "{:?}", result);
 
@@ -98,6 +112,8 @@ mod tests {
         O: Debug,
         E: Debug,
     {
+        dbg!(&result);
+
         let result = result.finish();
         assert!(result.is_err(), "{:?}", result);
     }
@@ -122,6 +138,16 @@ mod tests {
             r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
         ));
         bad(include_directive(
+            r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
+        ));
+
+        ok(unknown_directive(
+            r#"#include "./test/tcp.rtconfig.txt""#.into(),
+        ));
+        ok(unknown_directive(
+            r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
+        ));
+        ok(unknown_directive(
             r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
         ));
     }
