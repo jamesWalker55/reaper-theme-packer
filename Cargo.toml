@@ -10,3 +10,5 @@ zip = "0.6"
 rust-ini = "0.21"
 relative-path = "1.9.2"
 thiserror = "1.0"
+log = { version = "0.4" }
+env_logger = "0.11"
