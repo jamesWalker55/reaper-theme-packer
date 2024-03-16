@@ -124,9 +124,14 @@ fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
 
 fn include_directive(input: Input) -> Result<Directive> {
     let (rest, tag) = tag("#include")(input)?;
-    let (rest, (path, _raw_string)) = delimited(space1, relative_path_string, space0)(rest).or(
-        Err(Err::Failure(ParseError::MalformedIncludeDirective(tag))),
-    )?;
+    let (rest, (path, _raw_string)) = delimited(space1, relative_path_string, space0)(rest)
+        .map_err(|err| {
+            if matches!(err, Err::Failure(_)) {
+                err
+            } else {
+                Err::Failure(ParseError::MalformedIncludeDirective(tag))
+            }
+        })?;
 
     Ok((rest, Directive::Include(path)))
 }
@@ -144,9 +149,13 @@ fn resource_directive(input: Input) -> Result<Directive> {
         )),
         space0,
     )(rest)
-    .or(Err(Err::Failure(ParseError::MalformedResourceDirective(
-        tag,
-    ))))?;
+    .map_err(|err| {
+        if matches!(err, Err::Failure(_)) {
+            err
+        } else {
+            Err::Failure(ParseError::MalformedResourceDirective(tag))
+        }
+    })?;
 
     // default destination to "."
     let dest = dest
