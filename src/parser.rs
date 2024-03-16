@@ -356,6 +356,7 @@ mod tests {
     #[test]
     fn unit_tests() {
         ok(string(r#""this is a string!""#.into()));
+        ok(string(r#""""#.into()));
         ok(string(r#""I will say \"Hello, world!\", ok?""#.into()));
         bad(string(
             r#""I'm gonna asd\a\sd\a\\asdasad\\as\d\as\d\a""#.into(),
@@ -376,13 +377,13 @@ mod tests {
             r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
         ));
 
-        irrecoverable(unknown_directive(
+        ok(unknown_directive(
             r#"#include "./test/tcp.rtconfig.txt""#.into(),
         ));
-        irrecoverable(unknown_directive(
+        ok(unknown_directive(
             r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
         ));
-        irrecoverable(unknown_directive(
+        ok(unknown_directive(
             r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
         ));
 
