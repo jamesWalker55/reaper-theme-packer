@@ -58,7 +58,7 @@ fn string(input: Input) -> Result<(String, Input)> {
     Ok((rest, (parsed_string, raw_string)))
 }
 
-fn line_comment(input: Input) -> Result {
+fn comment(input: Input) -> Result {
     recognize(preceded(char(';'), take_till(|x| x == '\n')))(input)
 }
 
@@ -171,10 +171,12 @@ fn walter_code(input: Input) -> Result {
     ))))(input)
 }
 
+#[derive(Debug)]
 enum RtconfigContent<'a> {
     Newline,
     Code(Input<'a>),
     Expression(Input<'a>),
+    Comment(Input<'a>),
     Directive(Directive),
 }
 
@@ -199,16 +201,18 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
             result.push(RtconfigContent::Directive(dir));
             input = rest;
             parsed_something_this_loop = true;
+        } else if let Ok((rest, comment)) = comment(input) {
+            result.push(RtconfigContent::Comment(comment));
+            input = rest;
+            parsed_something_this_loop = true;
         }
 
-        if parsed_something_this_loop {
-            // successfully parsd a line, try to parse a newline
-            if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
-                // successfully taken newline, move on to the next line
-                result.push(RtconfigContent::Newline);
-                input = rest;
-                continue;
-            }
+        // successfully parsd a line, try to parse a newline
+        if let Ok((rest, _)) = newline::<LocatedSpan<&str>, ParseError<Input>>(input) {
+            // successfully taken newline, move on to the next line
+            result.push(RtconfigContent::Newline);
+            input = rest;
+            continue;
         }
 
         // failed to continue parsing, this must be end of file
@@ -267,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_string() {
+    fn unit_tests() {
         ok(string(r#""this is a string!""#.into()));
         ok(string(r#""I will say \"Hello, world!\", ok?""#.into()));
         bad(string(
@@ -276,8 +280,8 @@ mod tests {
         ok(string(r#""I'm gonna \\n fake new line""#.into()));
         bad(string(r#""I'm gonna \""#.into()));
 
-        ok(line_comment(r#"; this is a comment, ashuidasj"#.into()));
-        ok(line_comment(r#"; this is a comment, ashuidasj  "#.into()));
+        ok(comment(r#"; this is a comment, ashuidasj"#.into()));
+        ok(comment(r#"; this is a comment, ashuidasj  "#.into()));
 
         ok(include_directive(
             r#"#include "./test/tcp.rtconfig.txt""#.into(),
@@ -333,5 +337,28 @@ mod tests {
         bad((walter_code, expression, walter_code)
             .parse("hello \nworld #{ 1\n+\n1 } ibhsdkasj".into()));
         bad(walter_code("".into()));
+    }
+
+    #[test]
+    fn test_rtconfig() {
+        let text = std::fs::read_to_string("test/test.rtconfig.txt").unwrap();
+
+        let result = rtconfig(text.as_str().into()).finish();
+        match result {
+            Ok((rest, contents)) => {
+                std::fs::write("./temp.txt", format!("{:?}", contents)).unwrap();
+
+                if rest.len() > 0 {
+                    panic!(
+                        "failed to parse rest of document!\nLine {} Column {}",
+                        rest.location_line(),
+                        rest.get_column()
+                    );
+                }
+            }
+            Err(result) => {
+                panic!("failed to even start parsing document!");
+            }
+        }
     }
 }
