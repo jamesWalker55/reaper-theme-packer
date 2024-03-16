@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 zip = "0.6"
+rust-ini = "0.21"
+relative-path = "1.9.2"
+thiserror = "1.0"
