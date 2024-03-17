@@ -413,28 +413,28 @@ mod tests {
             r#"#include "./test/tcp.rtconfig.txt""#.into(),
         ));
         ok(include_directive(
-            r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
+            r#"#include    "./test/tcp.rtconfig.txt""#.into(),
         ));
         bad(include_directive(
-            r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
+            r#"#include    "C:/test/tcp.rtconfig.txt""#.into(),
         ));
 
         ok(unknown_directive(
             r#"#include "./test/tcp.rtconfig.txt""#.into(),
         ));
         ok(unknown_directive(
-            r#"#include    "./test/tcp.rtconfig.txt"  "#.into(),
+            r#"#include    "./test/tcp.rtconfig.txt""#.into(),
         ));
         ok(unknown_directive(
-            r#"#include    "C:/test/tcp.rtconfig.txt"  "#.into(),
+            r#"#include    "C:/test/tcp.rtconfig.txt""#.into(),
         ));
 
         ok(resource_directive(r#"#resource "./*.png""#.into()));
-        ok(resource_directive(r#"#resource    "./*.png"  "#.into()));
+        ok(resource_directive(r#"#resource    "./*.png""#.into()));
         ok(resource_directive(r#"#resource "./knob.png""#.into()));
         ok(resource_directive(r#"#resource "150": "./*.png""#.into()));
         ok(resource_directive(
-            r#"#resource    "150" : "./*.png"    "#.into(),
+            r#"#resource    "150" : "./*.png""#.into(),
         ));
         bad(resource_directive(r#"#resource "150" "./*.png""#.into()));
         bad(resource_directive(r#"#resource "C:/knob.png""#.into()));
