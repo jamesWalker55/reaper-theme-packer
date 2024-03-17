@@ -3,6 +3,8 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    rc::Rc,
+    vec::IntoIter,
 };
 
 use glob::Pattern;
@@ -65,7 +67,7 @@ struct ThemeBuilder<'a> {
 }
 
 impl<'a> ThemeBuilder<'a> {
-    fn new(root: &Path) -> Self {
+    fn new() -> Self {
         Self {
             lua: interpreter::new(),
             parts: Vec::new(),
@@ -86,7 +88,7 @@ impl<'a> ThemeBuilder<'a> {
         &self.resources
     }
 
-    fn feed(&mut self, content: RtconfigContent<'a>, source_path: &Path) -> Result {
+    fn feed(&mut self, content: &RtconfigContent<'a>, source_path: &Path) -> Result {
         match content {
             RtconfigContent::Newline => self.parts.push("\n".into()),
             RtconfigContent::Code(text) => self.parts.push(Cow::Borrowed(text.fragment())),
@@ -121,7 +123,7 @@ impl<'a> ThemeBuilder<'a> {
                     .map(|x| match x {
                         ReaperThemeContent::Text(text) => Ok(Cow::from(*text.fragment())),
                         ReaperThemeContent::Expression(text) => {
-                            self.serialise_expression(*text, false)
+                            self.serialise_expression(text, false)
                         }
                     })
                     .collect();
@@ -144,7 +146,7 @@ impl<'a> ThemeBuilder<'a> {
         Ok(())
     }
 
-    fn serialise_expression(&self, expr: parser::Input, is_rtconfig: bool) -> Result<Cow<str>> {
+    fn serialise_expression(&self, expr: &parser::Input, is_rtconfig: bool) -> Result<Cow<str>> {
         let value: mlua::Value = self
             .lua
             .load(*expr.fragment())
@@ -187,7 +189,7 @@ impl<'a> ThemeBuilder<'a> {
         }
     }
 
-    fn feed_expression(&mut self, expr: parser::Input) -> Result {
+    fn feed_expression(&mut self, expr: &parser::Input) -> Result {
         let expr = self.serialise_expression(expr, true)?;
         let expr = expr.to_string();
 
@@ -276,35 +278,51 @@ impl<'a> ThemeBuilder<'a> {
         }
     }
 
-    fn feed_directive_unknown(&mut self, name: parser::Input, contents: parser::Input) {
+    fn feed_directive_unknown(&mut self, name: &parser::Input, contents: &parser::Input) {
         todo!()
     }
 }
 
 pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<ResourceMap> {
-    let text = read(&path)?;
-    let contents = parse_rtconfig(&path, &text)?;
-    let lua = interpreter::new();
-    let working_directory = working_directory
-        .map(|p| p.to_path_buf())
-        .unwrap_or(std::env::current_dir().unwrap());
-    let mut resources: ResourceMap = HashMap::new();
-    let mut result: Vec<String> = vec![];
+    let mut builder = ThemeBuilder::new();
 
-    // let processed_contents: Vec<_> = contents
-    //     .iter()
-    //     .map(|content| match content {
-    //         RtconfigContent::Expression(expr) => todo!(),
-    //         RtconfigContent::Directive(dir) => match dir {
-    //             Directive::Include(_) => todo!(),
-    //             Directive::Resource { pattern, dest } => {
-    //                 add_resources(&mut resources, &pattern, &dest, &working_directory)
-    //             }
-    //             Directive::Unknown { name, contents } => todo!(),
-    //         },
-    //         x => x,
-    //     })
-    //     .collect();
+    // A list of currently-parsing scripts.
+    //
+    // The first element is the root script.
+    // The second element is a script being included by the first script and is currently being processed.
+    // The third element is a script being included by the second script and is currently being processed.
+    // etc...
+    let mut parsing_scripts: Vec<(PathBuf, Rc<String>, IntoIter<RtconfigContent<'_>>)> = vec![];
+
+    let text = Rc::new(read(&path)?);
+    parsing_scripts.push((
+        path.to_path_buf(),
+        text,
+        parse_rtconfig(&path, &text.clone())?.into_iter(),
+    ));
+    // {
+    //     let x = parsing_scripts.get_mut(0).unwrap();
+    //     x.2 = Some(parse_rtconfig(&path, &x.1)?.into_iter());
+    // }
+
+    while parsing_scripts.len() > 0 {
+        let parsing_scripts_len = parsing_scripts.len();
+        let (path, text, contents) = parsing_scripts.get_mut(parsing_scripts_len - 1).unwrap();
+
+        match contents.next() {
+            Some(content) => {
+                if let RtconfigContent::Directive(Directive::Include(include_relpath)) = content {
+                    // builder.feed(&content, path)?;
+                    todo!()
+                } else {
+                    builder.feed(&content, path)?;
+                }
+            }
+            None => {
+                parsing_scripts.pop().unwrap();
+            }
+        }
+    }
 
     todo!()
 }
