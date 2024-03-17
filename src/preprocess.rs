@@ -38,8 +38,12 @@ fn read(path: &Path) -> Result<String> {
     fs::read_to_string(path).or(Err(PreprocessError::ReadError(path.to_path_buf())))
 }
 
-fn parse_rtconfig<'text, 'path>(path: &'path Path, text: &'text str) -> Result<Vec<RtconfigContent<'text>>> {
-    parser::parse_rtconfig(&text).map_err(|err| PreprocessError::ParseError(path.to_path_buf(), err))
+fn parse_rtconfig<'text, 'path>(
+    path: &'path Path,
+    text: &'text str,
+) -> Result<Vec<RtconfigContent<'text>>> {
+    parser::parse_rtconfig(&text)
+        .map_err(|err| PreprocessError::ParseError(path.to_path_buf(), err))
 }
 
 struct ThemeBuilder<'a> {
@@ -265,11 +269,14 @@ mod tests {
         );
         feed(&mut builder, RtconfigContent::Newline);
 
-        assert_eq!(builder.rtconfig(), indoc! {"
-            set test [1 2 3 4]
-            set test [1 2 3 4]
-            6
-            66051
-        "});
+        assert_eq!(
+            builder.rtconfig(),
+            indoc! {"
+                set test [1 2 3 4]
+                set test [1 2 3 4]
+                6
+                66051
+            "}
+        );
     }
 }
