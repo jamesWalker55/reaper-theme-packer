@@ -196,24 +196,27 @@ impl<'a> ThemeBuilder<'a> {
         Ok(())
     }
 
-    fn feed_directive_include(
-        &mut self,
-        include_relpath: &RelativePath,
-        source_path: &Path,
-    ) -> Result {
-        let include_type = match include_relpath.extension().map(|x| x.to_ascii_lowercase()) {
+    fn determine_include_type(path: &RelativePath) -> IncludeType {
+        match path.extension().map(|x| x.to_ascii_lowercase()) {
             Some(ext) => match ext.as_str() {
                 "reapertheme" | "ini" => IncludeType::ReaperTheme,
                 "lua" => IncludeType::Lua,
                 _ => IncludeType::RtConfig,
             },
             None => IncludeType::RtConfig,
-        };
+        }
+    }
 
+    fn feed_directive_include(
+        &mut self,
+        include_relpath: &RelativePath,
+        source_path: &Path,
+    ) -> Result {
+        let include_type = Self::determine_include_type(include_relpath);
         let include_path = include_relpath.to_path(source_path);
 
         match include_type {
-            IncludeType::RtConfig => todo!(),
+            IncludeType::RtConfig => panic!("#include rtconfig should not be fed into builder"),
             IncludeType::ReaperTheme => self.import_config(&include_path)?,
             IncludeType::Lua => self.run_script(&include_path)?,
         }
