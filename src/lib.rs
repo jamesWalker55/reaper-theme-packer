@@ -6,7 +6,7 @@ use theme::BuildOptions;
 mod parser;
 mod preprocess;
 mod theme;
-mod sandboxed_lua;
+mod interpreter;
 
 pub fn setup_logging() {
     use env_logger::Env;

@@ -6,7 +6,7 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    parser::{self, ParseError, RtconfigContent}, sandboxed_lua, theme::ResourceMap
+    parser::{self, ParseError, RtconfigContent}, interpreter, theme::ResourceMap
 };
 
 #[derive(Error, Debug)]
@@ -30,7 +30,7 @@ fn parse<'text, 'path>(path: &'path Path, text: &'text str) -> Result<Vec<Rtconf
 pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<ResourceMap> {
     let text = read(&path)?;
     let contents = parse(&path, &text)?;
-    let lua = sandboxed_lua::new();
+    let lua = interpreter::new();
 
     let processed_contents: Vec<_> = contents.iter().map(|content| {
         match content {
