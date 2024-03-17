@@ -19,3 +19,6 @@ nom_locate = "4.2"
 glob = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 mlua = { version = "0.9", features = ["lua54", "vendored"] }
+
+[dev-dependencies]
+indoc = "2"

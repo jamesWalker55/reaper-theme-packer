@@ -12,7 +12,7 @@ use relative_path::RelativePath;
 use thiserror::Error;
 
 use crate::{
-    interpreter,
+    interpreter::{self, Color},
     parser::{self, Directive, ParseError, RtconfigContent},
     theme::ResourceMap,
 };
@@ -73,7 +73,7 @@ impl<'a> ThemeBuilder<'a> {
         &self.resources
     }
 
-    fn feed(&mut self, content: RtconfigContent<'a>, source_path: PathBuf) -> Result {
+    fn feed(&mut self, content: RtconfigContent<'a>, source_path: &Path) -> Result {
         match content {
             RtconfigContent::Newline => self.parts.push("\n".into()),
             RtconfigContent::Code(text) => self.parts.push(Cow::Borrowed(text.fragment())),
@@ -92,7 +92,7 @@ impl<'a> ThemeBuilder<'a> {
         Ok(())
     }
 
-    fn feed_expression(&mut self, expr: parser::Input) -> Result {
+    fn serialise_expression(&self, expr: parser::Input, is_rtconfig: bool) -> Result<Cow<str>> {
         let value: mlua::Value = self
             .lua
             .load(*expr.fragment())
@@ -104,6 +104,42 @@ impl<'a> ThemeBuilder<'a> {
                 expr.fragment()
             ))
             .eval()?;
+
+        match value {
+            mlua::Value::Nil => Ok("".into()),
+            mlua::Value::Boolean(true) => Ok("true".into()),
+            mlua::Value::Boolean(false) => Ok("false".into()),
+            mlua::Value::Integer(x) => Ok(x.to_string().into()),
+            mlua::Value::Number(x) => Ok(x.to_string().into()),
+            mlua::Value::String(x) => Ok(x
+                .to_str()
+                .expect("expression evaluated into invalid utf8 string")
+                .to_string()
+                .into()),
+            mlua::Value::Table(_) => todo!(),
+            mlua::Value::Function(_) => todo!(),
+            mlua::Value::Thread(_) => todo!(),
+            mlua::Value::UserData(userdata) => {
+                if let Ok(color) = userdata.take::<Color>() {
+                    if is_rtconfig {
+                        Ok(color.value().to_string().into())
+                    } else {
+                        Ok(color.value_rev().to_string().into())
+                    }
+                } else {
+                    todo!()
+                }
+            }
+            mlua::Value::LightUserData(_) => todo!(),
+            mlua::Value::Error(_) => todo!(),
+        }
+    }
+
+    fn feed_expression(&mut self, expr: parser::Input) -> Result {
+        let expr = self.serialise_expression(expr, true)?;
+        let expr = expr.to_string();
+
+        self.parts.push(expr.into());
 
         Ok(())
     }
@@ -195,4 +231,45 @@ pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<Resou
     //     .collect();
 
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+
+    fn feed<'a>(builder: &mut ThemeBuilder<'a>, content: RtconfigContent<'a>) {
+        builder.feed(content, ".".as_ref()).unwrap();
+    }
+
+    #[test]
+    fn test_01() {
+        let mut builder = ThemeBuilder::new(".".as_ref());
+
+        feed(
+            &mut builder,
+            RtconfigContent::Code("set test [1 2 3 4]".into()),
+        );
+        feed(&mut builder, RtconfigContent::Newline);
+        feed(
+            &mut builder,
+            RtconfigContent::Code("set test [1 2 3 4]".into()),
+        );
+
+        feed(&mut builder, RtconfigContent::Newline);
+        feed(&mut builder, RtconfigContent::Expression("1 + 5".into()));
+        feed(&mut builder, RtconfigContent::Newline);
+        feed(
+            &mut builder,
+            RtconfigContent::Expression("rgb(1, 2, 3)".into()),
+        );
+        feed(&mut builder, RtconfigContent::Newline);
+
+        assert_eq!(builder.rtconfig(), indoc! {"
+            set test [1 2 3 4]
+            set test [1 2 3 4]
+            6
+            66051
+        "});
+    }
 }
