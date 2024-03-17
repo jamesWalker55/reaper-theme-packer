@@ -6,6 +6,7 @@ use std::{
 };
 
 use glob::Pattern;
+use ini::Ini;
 use log::{debug, warn};
 use relative_path::RelativePath;
 use thiserror::Error;
@@ -45,6 +46,7 @@ struct ThemeBuilder<'a> {
     root: PathBuf,
     lua: mlua::Lua,
     parts: Vec<Cow<'a, str>>,
+    config: Ini,
     resources: ResourceMap,
 }
 
@@ -54,8 +56,21 @@ impl<'a> ThemeBuilder<'a> {
             root: root.to_path_buf(),
             lua: interpreter::new(),
             parts: Vec::new(),
+            config: Ini::new(),
             resources: HashMap::new(),
         }
+    }
+
+    fn rtconfig(&self) -> String {
+        self.parts.join("")
+    }
+
+    fn reapertheme(&self) -> &Ini {
+        &self.config
+    }
+
+    fn resources(&self) -> &ResourceMap {
+        &self.resources
     }
 
     fn feed(&mut self, content: RtconfigContent<'a>, source_path: PathBuf) -> Result {
