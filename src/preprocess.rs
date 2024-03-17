@@ -13,16 +13,24 @@ use thiserror::Error;
 
 use crate::{
     interpreter::{self, Color},
-    parser::{self, Directive, ParseError, RtconfigContent},
+    parser::{self, parse_reapertheme, Directive, ParseError, ReaperThemeContent, RtconfigContent},
     theme::ResourceMap,
 };
 
 #[derive(Error, Debug)]
 pub enum PreprocessError {
+    #[error("cannot include a file outside the root folder `{0}`")]
+    IncludeOutsideRoot(PathBuf),
+    #[error("cannot add a resource outside the root folder `{0}`")]
+    ResourceOutsideRoot(PathBuf),
     #[error("failed to read file `{0}`")]
     ReadError(PathBuf),
     #[error("failed to parse rtconfig `{0}`")]
-    ParseError(PathBuf, ParseError),
+    RtconfigParseError(PathBuf, ParseError),
+    #[error("failed to parse reapertheme `{0}`")]
+    ReaperThemeParseError(PathBuf, ParseError),
+    #[error("failed to read reapertheme file `{0}`")]
+    IniError(#[from] ini::Error),
 }
 
 impl From<mlua::Error> for PreprocessError {
@@ -43,7 +51,7 @@ fn parse_rtconfig<'text, 'path>(
     text: &'text str,
 ) -> Result<Vec<RtconfigContent<'text>>> {
     parser::parse_rtconfig(&text)
-        .map_err(|err| PreprocessError::ParseError(path.to_path_buf(), err))
+        .map_err(|err| PreprocessError::RtconfigParseError(path.to_path_buf(), err))
 }
 
 struct ThemeBuilder<'a> {
@@ -93,6 +101,35 @@ impl<'a> ThemeBuilder<'a> {
                 }
             },
         };
+        Ok(())
+    }
+
+    fn import_config(&mut self, path: &Path) -> Result {
+        let ini = Ini::load_from_file(path)?;
+
+        for (section, prop) in ini.iter() {
+            for (key, value) in prop.iter() {
+                // parse the value to find expressions
+                let value = parse_reapertheme(value).map_err(|err| {
+                    PreprocessError::ReaperThemeParseError(path.to_path_buf(), err)
+                })?;
+
+                // evaluate any expressions and join to string
+                let value: Result<String> = value
+                    .iter()
+                    .map(|x| match x {
+                        ReaperThemeContent::Text(text) => Ok(Cow::from(*text.fragment())),
+                        ReaperThemeContent::Expression(text) => {
+                            self.serialise_expression(*text, false)
+                        }
+                    })
+                    .collect();
+                let value = value?;
+
+                self.config.with_section(section).set(key, value);
+            }
+        }
+
         Ok(())
     }
 
