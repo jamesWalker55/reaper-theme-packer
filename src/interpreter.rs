@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq)]
-enum Color {
+pub enum Color {
     RGB(u8, u8, u8),
     RGBA(u8, u8, u8, u8),
 }
@@ -55,17 +55,21 @@ impl Color {
         }
     }
 
-    fn value(&self) -> i32 {
+    pub fn value(&self) -> i32 {
         match self {
-            Self::RGB(r, g, b) => (*r as i32) << 16 + g << 8 + b,
-            Self::RGBA(r, g, b, a) => (*r as i32) << 24 + g << 16 + b << 8 + a,
+            Self::RGB(r, g, b) => ((*r as i32) << 16) + ((*g as i32) << 8) + (*b as i32),
+            Self::RGBA(r, g, b, a) => {
+                ((*r as i32) << 24) + ((*g as i32) << 16) + ((*b as i32) << 8) + (*a as i32)
+            }
         }
     }
 
-    fn value_rev(&self) -> i32 {
+    pub fn value_rev(&self) -> i32 {
         match self {
-            Self::RGB(r, g, b) => (*b as i32) << 16 + g << 8 + r,
-            Self::RGBA(r, g, b, a) => (*a as i32) << 24 + b << 16 + g << 8 + r,
+            Self::RGB(r, g, b) => ((*b as i32) << 16) + ((*g as i32) << 8) + (*r as i32),
+            Self::RGBA(r, g, b, a) => {
+                ((*a as i32) << 24) + ((*b as i32) << 16) + ((*g as i32) << 8) + (*r as i32)
+            }
         }
     }
 
