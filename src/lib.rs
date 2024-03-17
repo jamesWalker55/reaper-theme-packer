@@ -3,10 +3,10 @@ use std::{collections::HashMap, path::PathBuf};
 use ini::Ini;
 use theme::BuildOptions;
 
+mod interpreter;
 mod parser;
 mod preprocess;
 mod theme;
-mod interpreter;
 
 pub fn setup_logging() {
     use env_logger::Env;

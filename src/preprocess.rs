@@ -6,7 +6,9 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    parser::{self, ParseError, RtconfigContent}, interpreter, theme::ResourceMap
+    interpreter,
+    parser::{self, ParseError, RtconfigContent},
+    theme::ResourceMap,
 };
 
 #[derive(Error, Debug)]
@@ -32,8 +34,9 @@ pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<Resou
     let contents = parse(&path, &text)?;
     let lua = interpreter::new();
 
-    let processed_contents: Vec<_> = contents.iter().map(|content| {
-        match content {
+    let processed_contents: Vec<_> = contents
+        .iter()
+        .map(|content| match content {
             RtconfigContent::Expression(expr) => todo!(),
             RtconfigContent::Directive(dir) => match dir {
                 parser::Directive::Include(_) => todo!(),
@@ -41,8 +44,8 @@ pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<Resou
                 parser::Directive::Unknown { name, contents } => todo!(),
             },
             x => x,
-        }
-    }).collect();
+        })
+        .collect();
 
     todo!()
 }
