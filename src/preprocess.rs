@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    cell::Cell,
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
@@ -59,14 +60,14 @@ enum IncludeType {
     Lua,
 }
 
-struct ThemeBuilder<'a> {
+struct ThemeBuilder {
     lua: mlua::Lua,
-    parts: Vec<Cow<'a, str>>,
+    parts: Vec<String>,
     config: Ini,
     resources: ResourceMap,
 }
 
-impl<'a> ThemeBuilder<'a> {
+impl ThemeBuilder {
     fn new() -> Self {
         Self {
             lua: interpreter::new(),
@@ -88,11 +89,11 @@ impl<'a> ThemeBuilder<'a> {
         &self.resources
     }
 
-    fn feed(&mut self, content: &RtconfigContent<'a>, source_path: &Path) -> Result {
+    fn feed(&mut self, content: &RtconfigContent, source_path: &Path) -> Result {
         match content {
             RtconfigContent::Newline => self.parts.push("\n".into()),
-            RtconfigContent::Code(text) => self.parts.push(Cow::Borrowed(text.fragment())),
-            RtconfigContent::Comment(text) => self.parts.push(Cow::Borrowed(text.fragment())),
+            RtconfigContent::Code(text) => self.parts.push(text.fragment().to_string()),
+            RtconfigContent::Comment(text) => self.parts.push(text.fragment().to_string()),
             RtconfigContent::Expression(text) => self.feed_expression(text)?,
             RtconfigContent::Directive(dir) => match dir {
                 Directive::Include(path) => self.feed_directive_include(&path, &source_path)?,
@@ -286,33 +287,36 @@ impl<'a> ThemeBuilder<'a> {
 pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<ResourceMap> {
     let mut builder = ThemeBuilder::new();
 
+    // A list of all script texts loaded
+    // This is because the ThemeBuilder stores references to the scripts
+    let mut all_texts: Cell<Vec<String>> = Cell::new(vec![]);
+
     // A list of currently-parsing scripts.
     //
     // The first element is the root script.
     // The second element is a script being included by the first script and is currently being processed.
     // The third element is a script being included by the second script and is currently being processed.
     // etc...
-    let mut parsing_scripts: Vec<(PathBuf, Rc<String>, IntoIter<RtconfigContent<'_>>)> = vec![];
+    let mut parsing_scripts: Vec<(PathBuf, IntoIter<RtconfigContent<'_>>)> = vec![];
 
-    let text = Rc::new(read(&path)?);
+    all_texts.get_mut().push(read(&path)?);
     parsing_scripts.push((
         path.to_path_buf(),
-        text,
-        parse_rtconfig(&path, &text.clone())?.into_iter(),
+        parse_rtconfig(&path, &all_texts.get_mut().get(0).unwrap())?.into_iter(),
     ));
-    // {
-    //     let x = parsing_scripts.get_mut(0).unwrap();
-    //     x.2 = Some(parse_rtconfig(&path, &x.1)?.into_iter());
-    // }
 
     while parsing_scripts.len() > 0 {
         let parsing_scripts_len = parsing_scripts.len();
-        let (path, text, contents) = parsing_scripts.get_mut(parsing_scripts_len - 1).unwrap();
+        let (path, contents) = parsing_scripts.get_mut(parsing_scripts_len - 1).unwrap();
 
         match contents.next() {
             Some(content) => {
                 if let RtconfigContent::Directive(Directive::Include(include_relpath)) = content {
-                    // builder.feed(&content, path)?;
+                    all_texts.get_mut().push(read(&path)?);
+                    parsing_scripts.push((
+                        path.to_path_buf(),
+                        parse_rtconfig(&path, &all_texts.get_mut().get(0).unwrap())?.into_iter(),
+                    ));
                     todo!()
                 } else {
                     builder.feed(&content, path)?;
