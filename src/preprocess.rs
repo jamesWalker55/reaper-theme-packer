@@ -52,7 +52,6 @@ fn parse_rtconfig<'text, 'path>(
 }
 
 struct ThemeBuilder<'a> {
-    root: PathBuf,
     lua: mlua::Lua,
     parts: Vec<Cow<'a, str>>,
     config: Ini,
@@ -62,7 +61,6 @@ struct ThemeBuilder<'a> {
 impl<'a> ThemeBuilder<'a> {
     fn new(root: &Path) -> Self {
         Self {
-            root: root.to_path_buf(),
             lua: interpreter::new(),
             parts: Vec::new(),
             config: Ini::new(),
@@ -130,7 +128,7 @@ impl<'a> ThemeBuilder<'a> {
         Ok(())
     }
 
-    fn run_script(&mut self, path: &Path) -> Result {
+    fn run_script(&self, path: &Path) -> Result {
         let script =
             std::fs::read_to_string(path).map_err(|err| PreprocessError::ReadScriptError(err))?;
         self.lua
