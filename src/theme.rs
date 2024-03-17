@@ -9,11 +9,13 @@ use ini::Ini;
 use relative_path::RelativePathBuf;
 use thiserror::Error;
 
+pub type ResourceMap = HashMap<RelativePathBuf, PathBuf>;
+
 pub struct Theme {
     name: String,
     rtconfig: String,
     config: Ini,
-    resources: HashMap<RelativePathBuf, PathBuf>,
+    resources: ResourceMap,
 }
 
 impl Default for Theme {

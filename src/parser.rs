@@ -120,7 +120,7 @@ where
 }
 
 #[derive(Debug, Serialize)]
-enum Directive<'a> {
+pub enum Directive<'a> {
     #[serde(serialize_with = "serialise_relpathbuf")]
     Include(RelativePathBuf),
     Resource {

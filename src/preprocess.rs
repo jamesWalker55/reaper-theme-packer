@@ -5,7 +5,10 @@ use std::{
 
 use thiserror::Error;
 
-use crate::parser::{self, ParseError, RtconfigContent};
+use crate::{
+    parser::{self, ParseError, RtconfigContent},
+    theme::ResourceMap,
+};
 
 #[derive(Error, Debug)]
 pub enum PreprocessError {
@@ -25,9 +28,21 @@ fn parse<'text, 'path>(path: &'path Path, text: &'text str) -> Result<Vec<Rtconf
     parser::parse(&text).map_err(|err| PreprocessError::ParseError(path.to_path_buf(), err))
 }
 
-pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result {
+pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<ResourceMap> {
     let text = read(&path)?;
     let contents = parse(&path, &text)?;
+
+    let processed_contents: Vec<_> = contents.iter().map(|content| {
+        match content {
+            RtconfigContent::Expression(expr) => todo!(),
+            RtconfigContent::Directive(dir) => match dir {
+                parser::Directive::Include(_) => todo!(),
+                parser::Directive::Resource { pattern, dest } => todo!(),
+                parser::Directive::Unknown { name, contents } => todo!(),
+            },
+            x => x,
+        }
+    }).collect();
 
     todo!()
 }
