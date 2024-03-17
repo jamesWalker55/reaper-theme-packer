@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{fmt::Display, path::PathBuf, str::FromStr};
 
 use nom::{
     branch::alt,
@@ -14,38 +14,65 @@ use relative_path::RelativePathBuf;
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum ParseError<I> {
-    #[error("invalid string literal `{0}`")]
-    MalformedString(I),
-    #[error("invalid path `{0}`")]
-    MalformedPath(I),
-    #[error("only relative paths are allowed `{0}`")]
-    NotRelativePath(I),
-    #[error("invalid glob pattern `{0}`")]
-    InvalidGlobPattern(I),
-    #[error("unknown directive `{0}`")]
-    UnknownDirective(I),
-    #[error("hash char is not walter code `{0}`")]
-    NonWALTERHash(I),
-    #[error("incorrect #include syntax `{0}`")]
-    MalformedIncludeDirective(I),
-    #[error("incorrect #resource syntax `{0}`")]
-    MalformedResourceDirective(I),
-    #[error("invalid syntax: {0:?}")]
-    Nom(I, nom::error::ErrorKind),
-}
-
 type Input<'a> = LocatedSpan<&'a str>;
 
-type Result<'a, O = Input<'a>> = IResult<Input<'a>, O, ParseError<Input<'a>>>;
+#[derive(Debug)]
+struct ErrorLocation {
+    offset: usize,
+    line: u32,
+    column_ascii: usize,
+    column_utf8: usize,
+    fragment: String,
+}
 
-impl<I> nom::error::ParseError<I> for ParseError<I> {
-    fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
-        ParseError::Nom(input, kind)
+impl<'a> From<Input<'a>> for ErrorLocation {
+    fn from(value: Input) -> Self {
+        Self {
+            offset: value.location_offset(),
+            line: value.location_line(),
+            column_ascii: value.get_column(),
+            column_utf8: value.get_utf8_column(),
+            fragment: value.fragment().to_string(),
+        }
+    }
+}
+
+impl Display for ErrorLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.column_utf8)
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("invalid string literal `{0}`")]
+    MalformedString(ErrorLocation),
+    #[error("invalid path `{0}`")]
+    MalformedPath(ErrorLocation),
+    #[error("only relative paths are allowed `{0}`")]
+    NotRelativePath(ErrorLocation),
+    #[error("invalid glob pattern `{0}`")]
+    InvalidGlobPattern(ErrorLocation),
+    #[error("unknown directive `{0}`")]
+    UnknownDirective(ErrorLocation),
+    #[error("hash char is not walter code `{0}`")]
+    NonWALTERHash(ErrorLocation),
+    #[error("incorrect #include syntax `{0}`")]
+    MalformedIncludeDirective(ErrorLocation),
+    #[error("incorrect #resource syntax `{0}`")]
+    MalformedResourceDirective(ErrorLocation),
+    #[error("invalid syntax: {0:?}")]
+    Nom(ErrorLocation, nom::error::ErrorKind),
+}
+
+type Result<'a, O = Input<'a>> = IResult<Input<'a>, O, ParseError>;
+
+impl<'a> nom::error::ParseError<Input<'a>> for ParseError {
+    fn from_error_kind(input: Input, kind: nom::error::ErrorKind) -> Self {
+        ParseError::Nom(input.into(), kind)
     }
 
-    fn append(input: I, kind: nom::error::ErrorKind, other: Self) -> Self {
+    fn append(input: Input, kind: nom::error::ErrorKind, other: Self) -> Self {
         other
     }
 }
@@ -61,8 +88,9 @@ fn string(input: Input) -> Result<(String, Input)> {
         char('"'),
     ))(input)?;
 
-    let parsed_string: String = serde_json::from_str(raw_string.as_ref())
-        .or(Err(Err::Failure(ParseError::MalformedString(raw_string))))?;
+    let parsed_string: String = serde_json::from_str(raw_string.as_ref()).or(Err(Err::Failure(
+        ParseError::MalformedString(raw_string.into()),
+    )))?;
 
     Ok((rest, (parsed_string, raw_string)))
 }
@@ -113,11 +141,13 @@ fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
     let (rest, (parsed_string, raw_string)) = string(input)?;
 
     // convert to PathBuf, may be absolute
-    let path = PathBuf::from_str(parsed_string.as_str())
-        .or(Err(Err::Failure(ParseError::MalformedPath(raw_string))))?;
+    let path = PathBuf::from_str(parsed_string.as_str()).or(Err(Err::Failure(
+        ParseError::MalformedPath(raw_string.into()),
+    )))?;
     // convert to RelativePathBuf, must be relative now
-    let path = RelativePathBuf::from_path(path)
-        .or(Err(Err::Failure(ParseError::NotRelativePath(raw_string))))?;
+    let path = RelativePathBuf::from_path(path).or(Err(Err::Failure(
+        ParseError::NotRelativePath(raw_string.into()),
+    )))?;
 
     Ok((rest, (path, raw_string)))
 }
@@ -127,7 +157,7 @@ fn include_directive(input: Input) -> Result<Directive> {
     let (rest, (path, _raw_string)) =
         preceded(space1, relative_path_string)(rest).map_err(|err| {
             if matches!(err, Err::Error(_)) {
-                Err::Failure(ParseError::MalformedIncludeDirective(tag))
+                Err::Failure(ParseError::MalformedIncludeDirective(tag.into()))
             } else {
                 // allow Err::Failure and Err::Incomplete to bubble up
                 err
@@ -151,7 +181,7 @@ fn resource_directive(input: Input) -> Result<Directive> {
     )(rest)
     .map_err(|err| {
         if matches!(err, Err::Error(_)) {
-            Err::Failure(ParseError::MalformedResourceDirective(tag))
+            Err::Failure(ParseError::MalformedResourceDirective(tag.into()))
         } else {
             // allow Err::Failure and Err::Incomplete to bubble up
             err
@@ -165,7 +195,7 @@ fn resource_directive(input: Input) -> Result<Directive> {
 
     // parse pattern
     let pattern = glob::Pattern::new(pattern.as_str()).or(Err(Err::Failure(
-        ParseError::InvalidGlobPattern(raw_pattern),
+        ParseError::InvalidGlobPattern(raw_pattern.into()),
     )))?;
 
     Ok((rest, Directive::Resource { pattern, dest }))
@@ -207,7 +237,7 @@ fn allowed_walter_hash_char(input: Input) -> Result {
     let expr = expression(input);
     if expr.is_ok() {
         // this hash belongs to an expression, not WALTER code
-        return Err(Err::Error(ParseError::NonWALTERHash(result.1)));
+        return Err(Err::Error(ParseError::NonWALTERHash(result.1.into())));
     }
 
     Ok(result)
@@ -306,7 +336,7 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
     .parse(input)
 }
 
-pub fn parse(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError<Input>> {
+pub fn parse(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError> {
     let (rest, result) = all_consuming(rtconfig)(text.into()).finish()?;
     if rest.len() > 0 {
         panic!("expected to fully parse input")
