@@ -5,6 +5,7 @@ use theme::BuildOptions;
 
 mod parser;
 mod theme;
+mod preprocess;
 
 pub fn setup_logging() {
     use env_logger::Env;

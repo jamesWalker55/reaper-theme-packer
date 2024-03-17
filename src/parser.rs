@@ -4,10 +4,10 @@ use nom::{
     branch::alt,
     bytes::complete::{escaped, tag, take, take_till, take_till1},
     character::complete::{alpha1, char, newline, space0, space1},
-    combinator::{cut, opt, recognize},
+    combinator::{all_consuming, cut, opt, recognize},
     multi::{many0, many1, separated_list1},
     sequence::{delimited, pair, preceded, terminated, tuple, Tuple},
-    Err, IResult, Parser, Slice,
+    Err, Finish, IResult, Parser, Slice,
 };
 use nom_locate::LocatedSpan;
 use relative_path::RelativePathBuf;
@@ -15,7 +15,7 @@ use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-enum ParseError<I> {
+pub enum ParseError<I> {
     #[error("invalid string literal `{0}`")]
     MalformedString(I),
     #[error("invalid path `{0}`")]
@@ -230,7 +230,7 @@ where
 }
 
 #[derive(Debug, Serialize)]
-enum RtconfigContent<'a> {
+pub enum RtconfigContent<'a> {
     Newline,
     #[serde(serialize_with = "serialise_span")]
     Code(Input<'a>),
@@ -304,6 +304,15 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
             .collect::<Vec<_>>()
     })
     .parse(input)
+}
+
+pub fn parse(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError<Input>> {
+    let (rest, result) = all_consuming(rtconfig)(text.into()).finish()?;
+    if rest.len() > 0 {
+        panic!("expected to fully parse input")
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]
