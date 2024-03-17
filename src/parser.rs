@@ -14,7 +14,7 @@ use relative_path::RelativePathBuf;
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
-type Input<'a> = LocatedSpan<&'a str>;
+pub(crate) type Input<'a> = LocatedSpan<&'a str>;
 
 #[derive(Debug)]
 struct ErrorLocation {
