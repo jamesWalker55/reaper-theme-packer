@@ -284,51 +284,35 @@ impl ThemeBuilder {
     }
 }
 
-pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<ResourceMap> {
-    let mut builder = ThemeBuilder::new();
+fn _preprocess(mut builder: &mut ThemeBuilder, path: &Path) -> Result {
+    let text = read(&path)?;
+    let contents = parse_rtconfig(&path, &text)?;
 
-    // A list of all script texts loaded
-    // This is because the ThemeBuilder stores references to the scripts
-    let mut all_texts: Cell<Vec<String>> = Cell::new(vec![]);
-
-    // A list of currently-parsing scripts.
-    //
-    // The first element is the root script.
-    // The second element is a script being included by the first script and is currently being processed.
-    // The third element is a script being included by the second script and is currently being processed.
-    // etc...
-    let mut parsing_scripts: Vec<(PathBuf, IntoIter<RtconfigContent<'_>>)> = vec![];
-
-    all_texts.get_mut().push(read(&path)?);
-    parsing_scripts.push((
-        path.to_path_buf(),
-        parse_rtconfig(&path, &all_texts.get_mut().get(0).unwrap())?.into_iter(),
-    ));
-
-    while parsing_scripts.len() > 0 {
-        let parsing_scripts_len = parsing_scripts.len();
-        let (path, contents) = parsing_scripts.get_mut(parsing_scripts_len - 1).unwrap();
-
-        match contents.next() {
-            Some(content) => {
-                if let RtconfigContent::Directive(Directive::Include(include_relpath)) = content {
-                    all_texts.get_mut().push(read(&path)?);
-                    parsing_scripts.push((
-                        path.to_path_buf(),
-                        parse_rtconfig(&path, &all_texts.get_mut().get(0).unwrap())?.into_iter(),
-                    ));
-                    todo!()
-                } else {
-                    builder.feed(&content, path)?;
-                }
+    for content in &contents {
+        if let RtconfigContent::Directive(Directive::Include(include_relpath)) = content {
+            let include_path = include_relpath.to_path(path.parent().unwrap());
+            match ThemeBuilder::determine_include_type(&include_relpath) {
+                IncludeType::RtConfig => _preprocess(&mut builder, &include_path)?,
+                _ => builder.feed(&content, path)?,
             }
-            None => {
-                parsing_scripts.pop().unwrap();
-            }
+        } else {
+            builder.feed(&content, path)?;
         }
     }
 
-    todo!()
+    Ok(())
+}
+
+pub fn preprocess(path: &Path) -> Result<(String, Ini, ResourceMap)> {
+    let mut builder = ThemeBuilder::new();
+
+    _preprocess(&mut builder, &path)?;
+
+    Ok((
+        builder.rtconfig(),
+        builder.reapertheme().clone(),
+        builder.resources().clone(),
+    ))
 }
 
 #[cfg(test)]
@@ -336,13 +320,13 @@ mod tests {
     use super::*;
     use indoc::indoc;
 
-    fn feed<'a>(builder: &mut ThemeBuilder<'a>, content: RtconfigContent<'a>) {
-        builder.feed(content, ".".as_ref()).unwrap();
+    fn feed(builder: &mut ThemeBuilder, content: RtconfigContent) {
+        builder.feed(&content, ".".as_ref()).unwrap();
     }
 
     #[test]
     fn test_01() {
-        let mut builder = ThemeBuilder::new(".".as_ref());
+        let mut builder = ThemeBuilder::new();
 
         feed(
             &mut builder,
