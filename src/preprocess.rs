@@ -31,13 +31,10 @@ pub enum PreprocessError {
     ReaperThemeParseError(PathBuf, ParseError),
     #[error("failed to read reapertheme file `{0}`")]
     IniError(#[from] ini::Error),
-}
-
-impl From<mlua::Error> for PreprocessError {
-    fn from(value: mlua::Error) -> Self {
-        dbg!(&value);
-        todo!()
-    }
+    #[error("failed to read script file `{0}`")]
+    ReadScriptError(std::io::Error),
+    #[error("failed to evaluate lua code `{0}`")]
+    EvaluateError(#[from] mlua::Error),
 }
 
 type Result<I = ()> = std::result::Result<I, PreprocessError>;
@@ -130,6 +127,16 @@ impl<'a> ThemeBuilder<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    fn run_script(&mut self, path: &Path) -> Result {
+        let script =
+            std::fs::read_to_string(path).map_err(|err| PreprocessError::ReadScriptError(err))?;
+        self.lua
+            .load(script)
+            .set_name(path.to_string_lossy())
+            .exec()?;
         Ok(())
     }
 
