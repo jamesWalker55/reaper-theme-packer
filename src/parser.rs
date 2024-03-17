@@ -126,10 +126,11 @@ fn include_directive(input: Input) -> Result<Directive> {
     let (rest, tag) = tag("#include")(input)?;
     let (rest, (path, _raw_string)) =
         preceded(space1, relative_path_string)(rest).map_err(|err| {
-            if matches!(err, Err::Failure(_)) {
-                err
-            } else {
+            if matches!(err, Err::Error(_)) {
                 Err::Failure(ParseError::MalformedIncludeDirective(tag))
+            } else {
+                // allow Err::Failure and Err::Incomplete to bubble up
+                err
             }
         })?;
 
@@ -149,10 +150,11 @@ fn resource_directive(input: Input) -> Result<Directive> {
         )),
     )(rest)
     .map_err(|err| {
-        if matches!(err, Err::Failure(_)) {
-            err
-        } else {
+        if matches!(err, Err::Error(_)) {
             Err::Failure(ParseError::MalformedResourceDirective(tag))
+        } else {
+            // allow Err::Failure and Err::Incomplete to bubble up
+            err
         }
     })?;
 
@@ -308,7 +310,7 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 mod tests {
     use std::{borrow::Cow, fmt::Debug};
 
-    use nom::{combinator::all_consuming, Finish};
+    use nom::Finish;
 
     use super::*;
 
