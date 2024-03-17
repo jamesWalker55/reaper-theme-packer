@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 fn unset(table: &mlua::Table, key: &str) {
     table.set(key, None::<bool>).unwrap();
@@ -25,6 +25,7 @@ pub fn new() -> mlua::Lua {
     {
         let globals = lua.globals();
 
+        // unset globals for sandboxing
         unset(&globals, "io");
         unset(&globals, "package");
         unset(&globals, "debug");
@@ -36,6 +37,57 @@ pub fn new() -> mlua::Lua {
             &globals.get("os").unwrap(),
             vec!["clock", "date", "difftime", "time"],
         );
+
+        // additional functions for Reaper themes
+        let func = lua
+            .create_function(|_, (r, g, b): (u8, u8, u8)| {
+                let r = i32::from(r);
+                let g = i32::from(g);
+                let b = i32::from(b);
+
+                Ok((b << 16) + (g << 8) + r)
+            })
+            .unwrap();
+        globals.set("rgb", func).unwrap();
+
+        let func = lua
+            .create_function(|_, (r, g, b, a): (u8, u8, u8, u8)| {
+                let r = i32::from(r);
+                let g = i32::from(g);
+                let b = i32::from(b);
+                let a = i32::from(a);
+
+                Ok((a << 24) + (b << 16) + (g << 8) + r)
+            })
+            .unwrap();
+        globals.set("rgba", func).unwrap();
+
+        let func = lua
+            .create_function(|_, (value, channels): (i64, Option<u8>)| {
+                let channels = if let Some(channels) = channels {
+                    channels
+                } else {
+                    let mut channels: u8 = 3;
+                    while value >= (2i64).pow(u32::from(channels) * 8) {
+                        channels += 1;
+                    }
+                    channels
+                };
+
+                if value >= (2i64).pow(u32::from(channels) * 8) {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "value {} does not fit within {} channels ({} bits)",
+                        value,
+                        channels,
+                        channels * 8
+                    )));
+                }
+                dbg!((&value, &channels));
+
+                todo!()
+            })
+            .unwrap();
+        globals.set("arr", func).unwrap();
     }
 
     lua
@@ -44,6 +96,38 @@ pub fn new() -> mlua::Lua {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rgb() {
+        let lua = new();
+
+        let result: i32 = lua.load("rgb(255, 255, 255)").eval().unwrap();
+        let expected = 0xffffff;
+        assert_eq!(result, expected);
+
+        let result: i32 = lua.load("rgb(0, 255, 255)").eval().unwrap();
+        let expected = 0xffff00;
+        assert_eq!(result, expected);
+
+        let result: i32 = lua.load("rgb(0, 0, 255)").eval().unwrap();
+        let expected = 0xff0000;
+        assert_eq!(result, expected);
+
+        let result: Result<i32, _> = lua.load("rgb(256, 0, 255)").eval();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_arr() {
+        let lua = new();
+
+        lua.load("arr(255)").exec().unwrap();
+        lua.load("arr(0xffffff)").exec().unwrap();
+        lua.load("arr(0xffffffff)").exec().unwrap();
+        lua.load("arr(0xffffffff, 3)").exec().unwrap();
+        // let expected = 0xffffff;
+        // assert_eq!(result, expected);
+    }
 
     #[test]
     fn test_01() {
