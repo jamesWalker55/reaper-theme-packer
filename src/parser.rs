@@ -336,8 +336,39 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
     .parse(input)
 }
 
-pub fn parse(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError> {
+pub fn parse_rtconfig(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError> {
     let (rest, result) = all_consuming(rtconfig)(text.into()).finish()?;
+    if rest.len() > 0 {
+        panic!("expected to fully parse input")
+    }
+
+    Ok(result)
+}
+
+fn ini_text(input: Input) -> Result {
+    recognize(many1(alt((
+        take_till1(|x| x == '#'),
+        allowed_walter_hash_char,
+    ))))(input)
+}
+
+#[derive(Debug, Serialize)]
+pub enum ReaperThemeContent<'a> {
+    #[serde(serialize_with = "serialise_span")]
+    Text(Input<'a>),
+    #[serde(serialize_with = "serialise_span")]
+    Expression(Input<'a>),
+}
+
+fn reapertheme(input: Input) -> Result<Vec<ReaperThemeContent>> {
+    many1(alt((
+        walter_code.map(|x| ReaperThemeContent::Text(x)),
+        expression.map(|x| ReaperThemeContent::Expression(x)),
+    )))(input)
+}
+
+pub fn parse_reapertheme(input: &str) -> std::result::Result<Vec<ReaperThemeContent>, ParseError> {
+    let (rest, result) = all_consuming(reapertheme)(input.into()).finish()?;
     if rest.len() > 0 {
         panic!("expected to fully parse input")
     }

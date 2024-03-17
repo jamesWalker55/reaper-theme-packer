@@ -38,8 +38,8 @@ fn read(path: &Path) -> Result<String> {
     fs::read_to_string(path).or(Err(PreprocessError::ReadError(path.to_path_buf())))
 }
 
-fn parse<'text, 'path>(path: &'path Path, text: &'text str) -> Result<Vec<RtconfigContent<'text>>> {
-    parser::parse(&text).map_err(|err| PreprocessError::ParseError(path.to_path_buf(), err))
+fn parse_rtconfig<'text, 'path>(path: &'path Path, text: &'text str) -> Result<Vec<RtconfigContent<'text>>> {
+    parser::parse_rtconfig(&text).map_err(|err| PreprocessError::ParseError(path.to_path_buf(), err))
 }
 
 struct ThemeBuilder<'a> {
@@ -207,7 +207,7 @@ impl<'a> ThemeBuilder<'a> {
 
 pub fn preprocess(path: &Path, working_directory: Option<&Path>) -> Result<ResourceMap> {
     let text = read(&path)?;
-    let contents = parse(&path, &text)?;
+    let contents = parse_rtconfig(&path, &text)?;
     let lua = interpreter::new();
     let working_directory = working_directory
         .map(|p| p.to_path_buf())
