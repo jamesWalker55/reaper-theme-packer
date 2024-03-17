@@ -4,8 +4,9 @@ use ini::Ini;
 use theme::BuildOptions;
 
 mod parser;
-mod theme;
 mod preprocess;
+mod theme;
+mod sandboxed_lua;
 
 pub fn setup_logging() {
     use env_logger::Env;
