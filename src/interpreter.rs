@@ -1,5 +1,85 @@
 use std::{collections::HashSet, sync::Arc};
 
+use thiserror::Error;
+
+#[derive(Debug, PartialEq, Eq)]
+enum Color {
+    RGB(u8, u8, u8),
+    RGBA(u8, u8, u8, u8),
+}
+
+#[derive(Error, Debug)]
+enum ColorError {
+    #[error("value `{0}` does not fit within {1} channels")]
+    ValueOutOfBounds(u32, u8),
+    #[error("invalid channel count `{0}`")]
+    InvalidChannels(u8),
+}
+
+impl Color {
+    fn new(value: u32) -> Result<Self, ColorError> {
+        if value <= 0xffffff {
+            Self::new_with_channels(value, 3)
+        } else {
+            Self::new_with_channels(value, 4)
+        }
+    }
+
+    fn new_with_channels(value: u32, channels: u8) -> Result<Self, ColorError> {
+        match channels {
+            3 => {
+                if value <= 0xffffff {
+                    Ok(Self::RGB(
+                        u8::try_from((value & 0xff0000) >> 16).unwrap(),
+                        u8::try_from((value & 0x00ff00) >> 8).unwrap(),
+                        u8::try_from(value & 0x0000ff).unwrap(),
+                    ))
+                } else {
+                    Err(ColorError::ValueOutOfBounds(value, 3))
+                }
+            }
+            4 => Ok(Self::RGBA(
+                u8::try_from((value & 0xff000000) >> 24).unwrap(),
+                u8::try_from((value & 0x00ff0000) >> 16).unwrap(),
+                u8::try_from((value & 0x0000ff00) >> 8).unwrap(),
+                u8::try_from(value & 0x000000ff).unwrap(),
+            )),
+            x => Err(ColorError::InvalidChannels(x)),
+        }
+    }
+
+    fn channels(&self) -> u8 {
+        match self {
+            Self::RGB(..) => 3,
+            Self::RGBA(..) => 4,
+        }
+    }
+
+    fn arr(&self) -> String {
+        match self {
+            Self::RGB(r, g, b) => format!("{r} {g} {b}"),
+            Self::RGBA(r, g, b, a) => format!("{r} {g} {b} {a}"),
+        }
+    }
+}
+
+impl mlua::UserData for Color {
+    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method("arr", |_, this, value: ()| Ok(this.arr()));
+    }
+}
+
+impl<'lua> mlua::FromLua<'lua> for Color {
+    fn from_lua(value: mlua::Value<'lua>, lua: &'lua mlua::Lua) -> mlua::Result<Self> {
+        let Some(userdata) = value.as_userdata() else {
+            return mlua::Result::Err(mlua::Error::UserDataTypeMismatch);
+        };
+        let color: Self = userdata.take()?;
+
+        Ok(color)
+    }
+}
+
 fn unset(table: &mlua::Table, key: &str) {
     table.set(key, None::<bool>).unwrap();
 }
@@ -16,78 +96,57 @@ fn whitelist(table: &mlua::Table, keys: Vec<&str>) {
         .unwrap();
 }
 
+fn sandbox_lua(lua: &mlua::Lua) {
+    let globals = lua.globals();
+
+    // unset globals for sandboxing
+    unset(&globals, "io");
+    unset(&globals, "package");
+    unset(&globals, "debug");
+    unset(&globals, "dofile");
+    unset(&globals, "loadfile");
+    unset(&globals, "require");
+
+    whitelist(
+        &globals.get("os").unwrap(),
+        vec!["clock", "date", "difftime", "time"],
+    );
+}
+
 pub fn new() -> mlua::Lua {
     // sandbox lua following Roblox's guide:
     // https://luau-lang.org/sandbox
 
     let lua = mlua::Lua::new();
 
+    sandbox_lua(&lua);
+
     {
         let globals = lua.globals();
 
-        // unset globals for sandboxing
-        unset(&globals, "io");
-        unset(&globals, "package");
-        unset(&globals, "debug");
-        unset(&globals, "dofile");
-        unset(&globals, "loadfile");
-        unset(&globals, "require");
-
-        whitelist(
-            &globals.get("os").unwrap(),
-            vec!["clock", "date", "difftime", "time"],
-        );
-
         // additional functions for Reaper themes
         let func = lua
-            .create_function(|_, (r, g, b): (u8, u8, u8)| {
-                let r = i32::from(r);
-                let g = i32::from(g);
-                let b = i32::from(b);
-
-                Ok((b << 16) + (g << 8) + r)
+            .create_function(|_, (value, channels): (u32, Option<u8>)| {
+                let result = if let Some(channels) = channels {
+                    Color::new_with_channels(value, channels)
+                } else {
+                    Color::new(value)
+                };
+                let color = result.map_err(|err| mlua::Error::ExternalError(Arc::new(err)))?;
+                Ok(color)
             })
+            .unwrap();
+        globals.set("color", func).unwrap();
+
+        let func = lua
+            .create_function(|_, (r, g, b): (u8, u8, u8)| Ok(Color::RGB(r, g, b)))
             .unwrap();
         globals.set("rgb", func).unwrap();
 
         let func = lua
-            .create_function(|_, (r, g, b, a): (u8, u8, u8, u8)| {
-                let r = i32::from(r);
-                let g = i32::from(g);
-                let b = i32::from(b);
-                let a = i32::from(a);
-
-                Ok((a << 24) + (b << 16) + (g << 8) + r)
-            })
+            .create_function(|_, (r, g, b, a): (u8, u8, u8, u8)| Ok(Color::RGBA(r, g, b, a)))
             .unwrap();
         globals.set("rgba", func).unwrap();
-
-        let func = lua
-            .create_function(|_, (value, channels): (i64, Option<u8>)| {
-                let channels = if let Some(channels) = channels {
-                    channels
-                } else {
-                    let mut channels: u8 = 3;
-                    while value >= (2i64).pow(u32::from(channels) * 8) {
-                        channels += 1;
-                    }
-                    channels
-                };
-
-                if value >= (2i64).pow(u32::from(channels) * 8) {
-                    return Err(mlua::Error::RuntimeError(format!(
-                        "value {} does not fit within {} channels ({} bits)",
-                        value,
-                        channels,
-                        channels * 8
-                    )));
-                }
-                dbg!((&value, &channels));
-
-                todo!()
-            })
-            .unwrap();
-        globals.set("arr", func).unwrap();
     }
 
     lua
@@ -101,32 +160,51 @@ mod tests {
     fn test_rgb() {
         let lua = new();
 
-        let result: i32 = lua.load("rgb(255, 255, 255)").eval().unwrap();
-        let expected = 0xffffff;
+        let result: Color = lua.load("rgb(255, 255, 255)").eval().unwrap();
+        let expected = Color::RGB(255, 255, 255);
         assert_eq!(result, expected);
 
-        let result: i32 = lua.load("rgb(0, 255, 255)").eval().unwrap();
-        let expected = 0xffff00;
+        let result: Color = lua.load("rgb(1, 2, 3)").eval().unwrap();
+        let expected = Color::RGB(1, 2, 3);
         assert_eq!(result, expected);
 
-        let result: i32 = lua.load("rgb(0, 0, 255)").eval().unwrap();
-        let expected = 0xff0000;
+        let result: Color = lua.load("rgba(255, 255, 255, 255)").eval().unwrap();
+        let expected = Color::RGBA(255, 255, 255, 255);
         assert_eq!(result, expected);
 
-        let result: Result<i32, _> = lua.load("rgb(256, 0, 255)").eval();
-        assert!(result.is_err());
+        let result: Color = lua.load("rgba(1, 2, 3, 4)").eval().unwrap();
+        let expected = Color::RGBA(1, 2, 3, 4);
+        assert_eq!(result, expected);
     }
 
     #[test]
     fn test_arr() {
         let lua = new();
 
-        lua.load("arr(255)").exec().unwrap();
-        lua.load("arr(0xffffff)").exec().unwrap();
-        lua.load("arr(0xffffffff)").exec().unwrap();
-        lua.load("arr(0xffffffff, 3)").exec().unwrap();
-        // let expected = 0xffffff;
-        // assert_eq!(result, expected);
+        let result: String = lua.load("rgb(1, 2, 3):arr()").eval().unwrap();
+        let expected = "1 2 3";
+        assert_eq!(result, expected);
+
+        let result: String = lua.load("rgba(1, 2, 3, 4):arr()").eval().unwrap();
+        let expected = "1 2 3 4";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_color() {
+        let lua = new();
+
+        let result: Color = lua.load("color(0xffffff)").eval().unwrap();
+        let expected = Color::RGB(255, 255, 255);
+        assert_eq!(result, expected);
+
+        let result: Color = lua.load("color(0xffffff, 4)").eval().unwrap();
+        let expected = Color::RGBA(0, 255, 255, 255);
+        assert_eq!(result, expected);
+
+        let result: Color = lua.load("color(0x11223344)").eval().unwrap();
+        let expected = Color::RGBA(0x11, 0x22, 0x33, 0x44);
+        assert_eq!(result, expected);
     }
 
     #[test]
