@@ -147,6 +147,50 @@ pub fn new() -> mlua::Lua {
             .create_function(|_, (r, g, b, a): (u8, u8, u8, u8)| Ok(Color::RGBA(r, g, b, a)))
             .unwrap();
         globals.set("rgba", func).unwrap();
+
+        let func = lua
+            .create_function(|_, (mode, frac): (String, f32)| {
+                // the blend mode is a 18-bit value, split into multiple parts:
+                //
+                //     0b1 frac_____ mode____
+                //     0b1 100000000 11111110
+
+                // reaper's frac value is represented as a fraction: x / 256
+                // we need to find the nearest x value
+                if !(0f32 <= frac && frac <= 1f32) {
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "frac `{}` must be a value between 0.0 and 1.0",
+                        frac
+                    )));
+                }
+
+                let frac: u32 = (frac * 256f32).round() as u32;
+
+                // the mode value is just an enum
+                let mode: u32 = match mode.as_str() {
+                    "normal" => 0b00000000,
+                    "add" => 0b00000001,
+                    "overlay" => 0b00000100,
+                    "multiply" => 0b00000011,
+                    "dodge" => 0b00000010,
+                    "hsv" => 0b11111110,
+                    _ => {
+                        return Err(mlua::Error::RuntimeError(format!(
+                            // I'm formatting this string weirdly because cargo fmt refuses to
+                            // format this file if i put the blend mode list in the base string
+                            "mode `{}` must be one of: {}",
+                            mode,
+                            "\"normal\", \"add\", \"overlay\", \"multiply\", \"dodge\", \"hsv\""
+                        )));
+                    }
+                };
+
+                let result = 0b100000000000000000 + (frac << 8) + mode;
+
+                Ok(result)
+            })
+            .unwrap();
+        globals.set("blend", func).unwrap();
     }
 
     lua
@@ -204,6 +248,23 @@ mod tests {
 
         let result: Color = lua.load("color(0x11223344)").eval().unwrap();
         let expected = Color::RGBA(0x11, 0x22, 0x33, 0x44);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_blend() {
+        let lua = new();
+
+        let result: i32 = lua.load("blend('hsv', 0.12)").eval().unwrap();
+        let expected = 0b100001111111111110;
+        assert_eq!(result, expected);
+
+        let result: i32 = lua.load("blend('normal', 0)").eval().unwrap();
+        let expected = 0b100000000000000000;
+        assert_eq!(result, expected);
+
+        let result: i32 = lua.load("blend('normal', 1)").eval().unwrap();
+        let expected = 0b110000000000000000;
         assert_eq!(result, expected);
     }
 
