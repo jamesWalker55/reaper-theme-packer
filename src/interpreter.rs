@@ -55,6 +55,20 @@ impl Color {
         }
     }
 
+    fn value(&self) -> i32 {
+        match self {
+            Self::RGB(r, g, b) => (*r as i32) << 16 + g << 8 + b,
+            Self::RGBA(r, g, b, a) => (*r as i32) << 24 + g << 16 + b << 8 + a,
+        }
+    }
+
+    fn value_rev(&self) -> i32 {
+        match self {
+            Self::RGB(r, g, b) => (*b as i32) << 16 + g << 8 + r,
+            Self::RGBA(r, g, b, a) => (*a as i32) << 24 + b << 16 + g << 8 + r,
+        }
+    }
+
     fn arr(&self) -> String {
         match self {
             Self::RGB(r, g, b) => format!("{r} {g} {b}"),
