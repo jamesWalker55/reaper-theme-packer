@@ -51,6 +51,12 @@ fn parse_rtconfig<'text, 'path>(
         .map_err(|err| PreprocessError::RtconfigParseError(path.to_path_buf(), err))
 }
 
+enum IncludeType {
+    RtConfig,
+    ReaperTheme,
+    Lua,
+}
+
 struct ThemeBuilder<'a> {
     lua: mlua::Lua,
     parts: Vec<Cow<'a, str>>,
@@ -87,7 +93,7 @@ impl<'a> ThemeBuilder<'a> {
             RtconfigContent::Comment(text) => self.parts.push(Cow::Borrowed(text.fragment())),
             RtconfigContent::Expression(text) => self.feed_expression(text)?,
             RtconfigContent::Directive(dir) => match dir {
-                Directive::Include(path) => self.feed_directive_include(&path),
+                Directive::Include(path) => self.feed_directive_include(&path, &source_path)?,
                 Directive::Resource { pattern, dest } => {
                     self.feed_directive_resource(&pattern, &dest, &source_path)
                 }
@@ -190,8 +196,29 @@ impl<'a> ThemeBuilder<'a> {
         Ok(())
     }
 
-    fn feed_directive_include(&mut self, path: &RelativePath) {
-        todo!()
+    fn feed_directive_include(
+        &mut self,
+        include_relpath: &RelativePath,
+        source_path: &Path,
+    ) -> Result {
+        let include_type = match include_relpath.extension().map(|x| x.to_ascii_lowercase()) {
+            Some(ext) => match ext.as_str() {
+                "reapertheme" | "ini" => IncludeType::ReaperTheme,
+                "lua" => IncludeType::Lua,
+                _ => IncludeType::RtConfig,
+            },
+            None => IncludeType::RtConfig,
+        };
+
+        let include_path = include_relpath.to_path(source_path);
+
+        match include_type {
+            IncludeType::RtConfig => todo!(),
+            IncludeType::ReaperTheme => self.import_config(&include_path)?,
+            IncludeType::Lua => self.run_script(&include_path)?,
+        }
+
+        Ok(())
     }
 
     fn feed_directive_resource(
