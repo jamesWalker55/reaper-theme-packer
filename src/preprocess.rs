@@ -97,6 +97,7 @@ struct ThemeBuilder {
     parts: Vec<String>,
     config: Ini,
     resources: ResourceMap,
+    skip_next_newline: bool,
 }
 
 impl ThemeBuilder {
@@ -106,6 +107,7 @@ impl ThemeBuilder {
             parts: Vec::new(),
             config: Ini::new(),
             resources: HashMap::new(),
+            skip_next_newline: false,
         }
     }
 
@@ -123,21 +125,30 @@ impl ThemeBuilder {
 
     fn feed(&mut self, content: &RtconfigContent, source_path: &Path) -> Result {
         match content {
-            RtconfigContent::Newline => self.parts.push("\n".into()),
+            RtconfigContent::Newline => {
+                if self.skip_next_newline {
+                    self.skip_next_newline = false;
+                } else {
+                    self.parts.push("\n".into());
+                }
+            }
             RtconfigContent::Code(text) => self.parts.push(text.fragment().to_string()),
             RtconfigContent::Comment(text) => self.parts.push(text.fragment().to_string()),
             RtconfigContent::Expression(text) => self.feed_expression(text).map_err(|err| {
                 PreprocessError::EvaluateError(source_path.into(), text.into(), err)
             })?,
-            RtconfigContent::Directive(dir) => match dir {
-                Directive::Include(path) => self.feed_directive_include(&path, &source_path)?,
-                Directive::Resource { pattern, dest } => {
-                    self.feed_directive_resource(&pattern, &dest, &source_path)
+            RtconfigContent::Directive(dir) => {
+                self.skip_next_newline = true;
+                match dir {
+                    Directive::Include(path) => self.feed_directive_include(&path, &source_path)?,
+                    Directive::Resource { pattern, dest } => {
+                        self.feed_directive_resource(&pattern, &dest, &source_path)
+                    }
+                    Directive::Unknown { name, contents } => {
+                        self.feed_directive_unknown(name, contents)
+                    }
                 }
-                Directive::Unknown { name, contents } => {
-                    self.feed_directive_unknown(name, contents)
-                }
-            },
+            }
         };
         Ok(())
     }
@@ -319,7 +330,7 @@ impl ThemeBuilder {
     }
 
     fn feed_directive_unknown(&mut self, name: &parser::Input, contents: &parser::Input) {
-        self.parts.push(format!("; {name}{contents}"));
+        self.parts.push(format!("; #{name}{contents}\n"));
     }
 }
 
