@@ -13,6 +13,7 @@ use glob::Pattern;
 use ini::Ini;
 use log::{debug, warn};
 use relative_path::RelativePath;
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
@@ -411,7 +412,20 @@ mod tests {
     #[test]
     fn test_02() {
         match preprocess(r"test\test.rtconfig.txt".as_ref()) {
-            Ok((rtconfig, reapertheme, res)) => fs::write("out.rtconfig.txt", rtconfig).unwrap(),
+            Ok((rtconfig, reapertheme, res)) => {
+                let mut new_res: HashMap<String, String> = HashMap::new();
+                for (k, v) in res.iter() {
+                    new_res.insert(k.to_string(), v.to_string_lossy().to_string());
+                }
+
+                fs::write("out.rtconfig.txt", rtconfig).unwrap();
+                reapertheme.write_to_file("out.ReaperTheme").unwrap();
+                fs::write(
+                    "out.res.json",
+                    serde_json::to_string_pretty(&new_res).unwrap(),
+                )
+                .unwrap();
+            }
             Err(err) => println!("[ERROR] {}", err),
         };
     }
