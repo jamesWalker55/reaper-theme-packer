@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     cell::Cell,
     collections::HashMap,
+    fmt::format,
     fs,
     path::{Path, PathBuf},
     rc::Rc,
@@ -35,7 +36,7 @@ pub enum PreprocessError {
     #[error("failed to read reapertheme file `{0}`")]
     IniError(#[from] ini::Error),
     #[error("failed to read script file `{0}`")]
-    ReadScriptError(std::io::Error),
+    ReadScriptError(PathBuf, std::io::Error),
     #[error("failed to evaluate lua code `{0}`")]
     EvaluateError(#[from] mlua::Error),
 }
@@ -138,8 +139,8 @@ impl ThemeBuilder {
     }
 
     fn run_script(&self, path: &Path) -> Result {
-        let script =
-            std::fs::read_to_string(path).map_err(|err| PreprocessError::ReadScriptError(err))?;
+        let script = std::fs::read_to_string(path)
+            .map_err(|err| PreprocessError::ReadScriptError(path.to_path_buf(), err))?;
         self.lua
             .load(script)
             .set_name(path.to_string_lossy())
@@ -216,7 +217,7 @@ impl ThemeBuilder {
         source_path: &Path,
     ) -> Result {
         let include_type = Self::determine_include_type(include_relpath);
-        let include_path = include_relpath.to_path(source_path);
+        let include_path = include_relpath.to_path(source_path.parent().unwrap());
 
         match include_type {
             IncludeType::RtConfig => panic!("#include rtconfig should not be fed into builder"),
@@ -280,7 +281,7 @@ impl ThemeBuilder {
     }
 
     fn feed_directive_unknown(&mut self, name: &parser::Input, contents: &parser::Input) {
-        todo!()
+        self.parts.push(format!("; {name}{contents}"));
     }
 }
 
@@ -356,5 +357,10 @@ mod tests {
                 66051
             "}
         );
+    }
+
+    #[test]
+    fn test_02() {
+        preprocess(r"test\test.rtconfig.txt".as_ref()).unwrap();
     }
 }
