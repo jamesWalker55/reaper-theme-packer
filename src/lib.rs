@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use clap::Parser;
 use log::error;
@@ -39,10 +39,16 @@ pub fn main() {
         },
     };
 
-    let (rtconfig, reapertheme, resources) = match preprocess::preprocess(&args.input) {
-        Ok(x) => x,
-        Err(err) => return error!("{}", err),
+    let globals = {
+        let mut map: HashMap<String, String> = HashMap::new();
+        map.insert("THEME_NAME".into(), theme_name.to_string());
+        map
     };
+    let (rtconfig, reapertheme, resources) =
+        match preprocess::preprocess(&args.input, Some(globals)) {
+            Ok(x) => x,
+            Err(err) => return error!("{}", err),
+        };
 
     let theme = theme::Theme::new(theme_name, &rtconfig, reapertheme, resources);
     match theme.build(

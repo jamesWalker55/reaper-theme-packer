@@ -351,8 +351,20 @@ fn _preprocess(mut builder: &mut ThemeBuilder, path: &Path) -> Result {
     Ok(())
 }
 
-pub fn preprocess(path: &Path) -> Result<(String, Ini, ResourceMap)> {
+pub fn preprocess(
+    path: &Path,
+    globals: Option<HashMap<String, String>>,
+) -> Result<(String, Ini, ResourceMap)> {
     let mut builder = ThemeBuilder::new();
+
+    if let Some(globals) = globals {
+        let table = builder.lua.globals();
+        for (k, v) in globals {
+            table
+                .set(k.clone(), v.clone())
+                .expect(format!("failed to set global {}={:?}", k, v).as_str());
+        }
+    };
 
     _preprocess(&mut builder, &path)?;
 
@@ -410,7 +422,7 @@ mod tests {
     fn test_02() {
         crate::setup_logging();
 
-        match preprocess(r"test\test.rtconfig.txt".as_ref()) {
+        match preprocess(r"test\test.rtconfig.txt".as_ref(), None) {
             Ok((rtconfig, reapertheme, res)) => {
                 let mut new_res: HashMap<String, String> = HashMap::new();
                 for (k, v) in res.iter() {
