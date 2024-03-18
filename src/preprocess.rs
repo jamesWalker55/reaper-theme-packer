@@ -408,6 +408,8 @@ mod tests {
 
     #[test]
     fn test_02() {
+        crate::setup_logging();
+
         match preprocess(r"test\test.rtconfig.txt".as_ref()) {
             Ok((rtconfig, reapertheme, res)) => {
                 let mut new_res: HashMap<String, String> = HashMap::new();
