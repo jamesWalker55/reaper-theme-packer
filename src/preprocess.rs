@@ -221,22 +221,22 @@ impl ThemeBuilder {
                 .expect("expression evaluated into invalid utf8 string")
                 .to_string()
                 .into()),
-            mlua::Value::Table(_) => todo!(),
-            mlua::Value::Function(_) => todo!(),
-            mlua::Value::Thread(_) => todo!(),
+            mlua::Value::Table(_) => todo!("Table"),
+            mlua::Value::Function(_) => todo!("Function"),
+            mlua::Value::Thread(_) => todo!("Thread"),
             mlua::Value::UserData(userdata) => {
-                if let Ok(color) = userdata.take::<Color>() {
+                if let Ok(color) = userdata.borrow::<Color>() {
                     if is_rtconfig {
                         Ok(color.value().to_string().into())
                     } else {
                         Ok(color.value_rev().to_string().into())
                     }
                 } else {
-                    todo!()
+                    todo!("UserData")
                 }
             }
-            mlua::Value::LightUserData(_) => todo!(),
-            mlua::Value::Error(_) => todo!(),
+            mlua::Value::LightUserData(_) => todo!("LightUserData"),
+            mlua::Value::Error(_) => todo!("Error"),
         }
     }
 

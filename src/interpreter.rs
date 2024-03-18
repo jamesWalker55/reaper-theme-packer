@@ -1,8 +1,9 @@
 use std::{collections::HashSet, sync::Arc};
 
+use mlua::FromLua;
 use thiserror::Error;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, FromLua)]
 pub enum Color {
     RGB(u8, u8, u8),
     RGBA(u8, u8, u8, u8),
@@ -84,17 +85,6 @@ impl Color {
 impl mlua::UserData for Color {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("arr", |_, this, value: ()| Ok(this.arr()));
-    }
-}
-
-impl<'lua> mlua::FromLua<'lua> for Color {
-    fn from_lua(value: mlua::Value<'lua>, lua: &'lua mlua::Lua) -> mlua::Result<Self> {
-        let Some(userdata) = value.as_userdata() else {
-            return mlua::Result::Err(mlua::Error::UserDataTypeMismatch);
-        };
-        let color: Self = userdata.take()?;
-
-        Ok(color)
     }
 }
 
@@ -237,6 +227,25 @@ mod tests {
         let result: Color = lua.load("rgba(1, 2, 3, 4)").eval().unwrap();
         let expected = Color::RGBA(1, 2, 3, 4);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_rgb_reuse() {
+        let lua = new();
+
+        lua.load("foo = rgb(11, 22, 33)").exec().unwrap();
+
+        let _: Color = lua.load("foo").eval().unwrap();
+
+        // try to take the color again, this will fail if the user data destructed
+        let _: Color = lua.load("foo").eval().unwrap();
+
+        // alternatively, assert that it fails:
+        // let result: mlua::Result<Color> = lua.load("foo").eval();
+        // assert!(matches!(
+        //     result,
+        //     mlua::Result::Err(mlua::Error::UserDataDestructed)
+        // ))
     }
 
     #[test]
