@@ -1,8 +1,8 @@
-use std::{path::PathBuf};
-
-
+use std::path::PathBuf;
 
 use clap::Parser;
+use log::error;
+use theme::BuildOptions;
 
 mod interpreter;
 mod parser;
@@ -22,6 +22,8 @@ pub fn setup_logging() {
 struct MainArgs {
     input: PathBuf,
     output: PathBuf,
+    #[clap(long, short, action)]
+    overwrite: bool,
 }
 
 pub fn main() {
@@ -29,19 +31,25 @@ pub fn main() {
 
     let args: MainArgs = MainArgs::parse();
 
-    dbg!(&args.input.join("apple"));
+    let theme_name = match args.output.file_stem() {
+        None => return error!("output file does not have a name"),
+        Some(stem) => match stem.to_str() {
+            None => return error!("output file name is not valid UTF8"),
+            Some(x) => x,
+        },
+    };
 
-    // let theme = theme::Theme::new(
-    //     "temp",
-    //     "; this is rtconfig code",
-    //     Ini::load_from_str("[config]\nhello=world\n# this is a comment :)))\ntest=123\nhash=#asd")
-    //         .unwrap(),
-    //     HashMap::from([("a".into(), ".gitignore".into())]),
-    // );
-    // theme
-    //     .build(
-    //         &PathBuf::from("temp.zip"),
-    //         &BuildOptions::default().overwrite(true),
-    //     )
-    //     .unwrap();
+    let (rtconfig, reapertheme, resources) = match preprocess::preprocess(&args.input) {
+        Ok(x) => x,
+        Err(err) => return error!("{}", err),
+    };
+
+    let theme = theme::Theme::new(theme_name, &rtconfig, reapertheme, resources);
+    match theme.build(
+        &args.output,
+        &BuildOptions::default().overwrite(args.overwrite),
+    ) {
+        Err(err) => return error!("{}", err),
+        _ => (),
+    }
 }
