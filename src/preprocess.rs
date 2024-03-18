@@ -280,13 +280,14 @@ impl ThemeBuilder {
         dest: &RelativePath,
         source_path: &Path,
     ) {
+        let source_dir = source_path.parent().unwrap();
         debug!(
             "glob pattern `{}` starting from `{}`",
             pattern,
-            source_path.to_string_lossy()
+            source_dir.to_string_lossy()
         );
 
-        let absolute_pattern = source_path.join(pattern.as_str());
+        let absolute_pattern = source_dir.join(pattern.as_str());
         let resources = glob::glob(absolute_pattern.to_string_lossy().as_ref()).expect(
             format!(
                 "invalid glob pattern `{}`",
