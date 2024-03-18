@@ -2,6 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use ini::Ini;
 use theme::BuildOptions;
+use clap::Parser;
 
 mod interpreter;
 mod parser;
@@ -16,20 +17,31 @@ pub fn setup_logging() {
     env_logger::init_from_env(env);
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct MainArgs {
+    input: PathBuf,
+    output: PathBuf,
+}
+
 pub fn main() {
     setup_logging();
 
-    let theme = theme::Theme::new(
-        "temp",
-        "; this is rtconfig code",
-        Ini::load_from_str("[config]\nhello=world\n# this is a comment :)))\ntest=123\nhash=#asd")
-            .unwrap(),
-        HashMap::from([("a".into(), ".gitignore".into())]),
-    );
-    theme
-        .build(
-            &PathBuf::from("temp.zip"),
-            &BuildOptions::default().overwrite(true),
-        )
-        .unwrap();
+    let args: MainArgs = MainArgs::parse();
+
+    dbg!(&args.input.join("apple"));
+
+    // let theme = theme::Theme::new(
+    //     "temp",
+    //     "; this is rtconfig code",
+    //     Ini::load_from_str("[config]\nhello=world\n# this is a comment :)))\ntest=123\nhash=#asd")
+    //         .unwrap(),
+    //     HashMap::from([("a".into(), ".gitignore".into())]),
+    // );
+    // theme
+    //     .build(
+    //         &PathBuf::from("temp.zip"),
+    //         &BuildOptions::default().overwrite(true),
+    //     )
+    //     .unwrap();
 }
