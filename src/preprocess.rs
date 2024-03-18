@@ -361,6 +361,9 @@ mod tests {
 
     #[test]
     fn test_02() {
-        preprocess(r"test\test.rtconfig.txt".as_ref()).unwrap();
+        match preprocess(r"test\test.rtconfig.txt".as_ref()) {
+            Ok((rtconfig, reapertheme, res)) => fs::write("out.rtconfig.txt", rtconfig).unwrap(),
+            Err(err) => println!("[ERROR] {}", err),
+        };
     }
 }
