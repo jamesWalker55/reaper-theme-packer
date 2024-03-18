@@ -112,7 +112,7 @@ impl Theme {
         // write .ReaperTheme
         {
             let reapertheme_path = {
-                let mut x = RelativePathBuf::from(&self.name);
+                let mut x = RelativePathBuf::from(&self.name).normalize();
                 x.set_extension("ReaperTheme");
                 x
             };
@@ -132,7 +132,9 @@ impl Theme {
 
         // write rtconfig.txt
         {
-            let rtconfig_path = RelativePathBuf::from(&self.name).join("rtconfig.txt");
+            let rtconfig_path = RelativePathBuf::from(&self.name)
+                .join("rtconfig.txt")
+                .normalize();
 
             zip.start_file(rtconfig_path.as_str(), file_options)
                 .expect(&format!(
@@ -147,7 +149,7 @@ impl Theme {
 
         // write resources
         {
-            let resource_root = RelativePathBuf::from(&self.name);
+            let resource_root = RelativePathBuf::from(&self.name).normalize();
 
             for (archive_path, os_path) in self.resources.iter() {
                 let archive_path = resource_root.join(archive_path);

@@ -194,7 +194,7 @@ fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
         ParseError::NotRelativePath(raw_string.into()),
     )))?;
 
-    Ok((rest, (path, raw_string)))
+    Ok((rest, (path.normalize(), raw_string)))
 }
 
 fn include_directive(input: Input) -> Result<Directive> {
@@ -236,7 +236,7 @@ fn resource_directive(input: Input) -> Result<Directive> {
     // default destination to "."
     let dest = dest
         .and_then(|x| Some(x.0))
-        .unwrap_or(RelativePathBuf::from("."));
+        .unwrap_or(RelativePathBuf::from(".").normalize());
 
     // parse pattern
     let pattern = glob::Pattern::new(pattern.as_str()).or(Err(Err::Failure(
