@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     fmt::format,
     fs,
-    path::{Path, PathBuf},
+    path::{self, Path, PathBuf},
     rc::Rc,
     vec::IntoIter,
 };
@@ -17,28 +17,59 @@ use thiserror::Error;
 
 use crate::{
     interpreter::{self, Color},
-    parser::{self, parse_reapertheme, Directive, ParseError, ReaperThemeContent, RtconfigContent},
+    parser::{
+        self, parse_reapertheme, Directive, ErrorLocation, ParseError, ReaperThemeContent,
+        RtconfigContent,
+    },
     theme::ResourceMap,
 };
 
 #[derive(Error, Debug)]
 pub enum PreprocessError {
-    #[error("cannot include a file outside the root folder `{0}`")]
+    #[error("{0}: cannot include a file outside the root folder")]
     IncludeOutsideRoot(PathBuf),
-    #[error("cannot add a resource outside the root folder `{0}`")]
+    #[error("{0}: cannot add a resource outside the root folder")]
     ResourceOutsideRoot(PathBuf),
-    #[error("failed to read file `{0}`")]
+    #[error("{0}: failed to read file")]
     ReadError(PathBuf),
-    #[error("failed to parse rtconfig `{0}`")]
+    #[error("{0}:{}: {1}", .1.location())]
     RtconfigParseError(PathBuf, ParseError),
-    #[error("failed to parse reapertheme `{0}`")]
+    #[error("{0}:{}: {1}", .1.location())]
     ReaperThemeParseError(PathBuf, ParseError),
-    #[error("failed to read reapertheme file `{0}`")]
-    IniError(#[from] ini::Error),
-    #[error("failed to read script file `{0}`")]
+    #[error("{0}: failed to read reapertheme file {1}")]
+    IniError(PathBuf, ini::Error),
+    #[error("{0}: failed to read script file ({1})")]
     ReadScriptError(PathBuf, std::io::Error),
-    #[error("failed to evaluate lua code `{0}`")]
-    EvaluateError(#[from] mlua::Error),
+    #[error("{0}:{1}: failed to evaluate lua code: {2}")]
+    EvaluateError(PathBuf, ErrorLocation, mlua::Error),
+}
+
+impl PreprocessError {
+    fn path(&self) -> &Path {
+        match self {
+            PreprocessError::IncludeOutsideRoot(path) => path.as_path(),
+            PreprocessError::ResourceOutsideRoot(path) => path.as_path(),
+            PreprocessError::ReadError(path) => path.as_path(),
+            PreprocessError::RtconfigParseError(path, _) => path.as_path(),
+            PreprocessError::ReaperThemeParseError(path, _) => path.as_path(),
+            PreprocessError::IniError(path, _) => path.as_path(),
+            PreprocessError::ReadScriptError(path, _) => path.as_path(),
+            PreprocessError::EvaluateError(path, _, _) => path.as_path(),
+        }
+    }
+
+    fn message(&self) -> &'static str {
+        match self {
+            Self::IncludeOutsideRoot(..) => "cannot include a file outside the root folder",
+            Self::ResourceOutsideRoot(..) => "cannot add a resource outside the root folder",
+            Self::ReadError(..) => "failed to read file",
+            Self::RtconfigParseError(..) => "failed to parse rtconfig",
+            Self::ReaperThemeParseError(..) => "failed to parse reapertheme",
+            Self::IniError(..) => "failed to read reapertheme file",
+            Self::ReadScriptError(..) => "failed to read script file",
+            Self::EvaluateError(..) => "failed to evaluate lua code",
+        }
+    }
 }
 
 type Result<I = ()> = std::result::Result<I, PreprocessError>;
@@ -95,7 +126,9 @@ impl ThemeBuilder {
             RtconfigContent::Newline => self.parts.push("\n".into()),
             RtconfigContent::Code(text) => self.parts.push(text.fragment().to_string()),
             RtconfigContent::Comment(text) => self.parts.push(text.fragment().to_string()),
-            RtconfigContent::Expression(text) => self.feed_expression(text)?,
+            RtconfigContent::Expression(text) => self.feed_expression(text).map_err(|err| {
+                PreprocessError::EvaluateError(source_path.into(), text.into(), err)
+            })?,
             RtconfigContent::Directive(dir) => match dir {
                 Directive::Include(path) => self.feed_directive_include(&path, &source_path)?,
                 Directive::Resource { pattern, dest } => {
@@ -110,7 +143,8 @@ impl ThemeBuilder {
     }
 
     fn import_config(&mut self, path: &Path) -> Result {
-        let ini = Ini::load_from_file(path)?;
+        let ini = Ini::load_from_file(path)
+            .map_err(|err| PreprocessError::IniError(path.to_path_buf(), err))?;
 
         for (section, prop) in ini.iter() {
             for (key, value) in prop.iter() {
@@ -125,7 +159,9 @@ impl ThemeBuilder {
                     .map(|x| match x {
                         ReaperThemeContent::Text(text) => Ok(Cow::from(*text.fragment())),
                         ReaperThemeContent::Expression(text) => {
-                            self.serialise_expression(text, false)
+                            self.serialise_expression(text, false).map_err(|err| {
+                                PreprocessError::EvaluateError(path.into(), text.into(), err)
+                            })
                         }
                     })
                     .collect();
@@ -144,21 +180,23 @@ impl ThemeBuilder {
         self.lua
             .load(script)
             .set_name(path.to_string_lossy())
-            .exec()?;
+            .exec()
+            .map_err(|err| {
+                PreprocessError::EvaluateError(path.into(), ErrorLocation::default(), err)
+            })?;
         Ok(())
     }
 
-    fn serialise_expression(&self, expr: &parser::Input, is_rtconfig: bool) -> Result<Cow<str>> {
+    fn serialise_expression(
+        &self,
+        expr: &parser::Input,
+        is_rtconfig: bool,
+    ) -> mlua::Result<Cow<str>> {
         let value: mlua::Value = self
             .lua
             .load(*expr.fragment())
             .set_mode(mlua::ChunkMode::Text)
-            .set_name(format!(
-                "Line {} Column {} `{}`",
-                expr.location_line(),
-                expr.get_utf8_column(),
-                expr.fragment()
-            ))
+            .set_name(*expr.fragment())
             .eval()?;
 
         match value {
@@ -191,7 +229,7 @@ impl ThemeBuilder {
         }
     }
 
-    fn feed_expression(&mut self, expr: &parser::Input) -> Result {
+    fn feed_expression(&mut self, expr: &parser::Input) -> mlua::Result<()> {
         let expr = self.serialise_expression(expr, true)?;
         let expr = expr.to_string();
 

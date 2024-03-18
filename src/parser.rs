@@ -17,16 +17,41 @@ use thiserror::Error;
 pub(crate) type Input<'a> = LocatedSpan<&'a str>;
 
 #[derive(Debug)]
-struct ErrorLocation {
-    offset: usize,
-    line: u32,
-    column_ascii: usize,
-    column_utf8: usize,
-    fragment: String,
+pub struct ErrorLocation {
+    pub offset: usize,
+    pub line: u32,
+    pub column_ascii: usize,
+    pub column_utf8: usize,
+    pub fragment: String,
+}
+
+impl Default for ErrorLocation {
+    fn default() -> Self {
+        Self {
+            offset: Default::default(),
+            line: Default::default(),
+            column_ascii: Default::default(),
+            column_utf8: Default::default(),
+            fragment: Default::default(),
+        }
+    }
+}
+
+impl<'a> From<&Input<'a>> for ErrorLocation {
+    fn from(value: &Input) -> Self {
+        Self {
+            offset: value.location_offset(),
+            line: value.location_line(),
+            column_ascii: value.get_column(),
+            column_utf8: value.get_utf8_column(),
+            fragment: value.fragment().to_string(),
+        }
+    }
 }
 
 impl<'a> From<Input<'a>> for ErrorLocation {
     fn from(value: Input) -> Self {
+        // value.into()
         Self {
             offset: value.location_offset(),
             line: value.location_line(),
@@ -45,24 +70,40 @@ impl Display for ErrorLocation {
 
 #[derive(Error, Debug)]
 pub enum ParseError {
-    #[error("invalid string literal `{0}`")]
+    #[error("invalid string literal: {}", .0.fragment)]
     MalformedString(ErrorLocation),
-    #[error("invalid path `{0}`")]
+    #[error("invalid path: {}", .0.fragment)]
     MalformedPath(ErrorLocation),
-    #[error("only relative paths are allowed `{0}`")]
+    #[error("only relative paths are allowed: {}", .0.fragment)]
     NotRelativePath(ErrorLocation),
-    #[error("invalid glob pattern `{0}`")]
+    #[error("invalid glob pattern: {}", .0.fragment)]
     InvalidGlobPattern(ErrorLocation),
-    #[error("unknown directive `{0}`")]
+    #[error("unknown directive: {}", .0.fragment)]
     UnknownDirective(ErrorLocation),
-    #[error("hash char is not walter code `{0}`")]
+    #[error("hash char is not walter code: {}", .0.fragment)]
     NonWALTERHash(ErrorLocation),
-    #[error("incorrect #include syntax `{0}`")]
+    #[error("incorrect #include syntax: {}", .0.fragment)]
     MalformedIncludeDirective(ErrorLocation),
-    #[error("incorrect #resource syntax `{0}`")]
+    #[error("incorrect #resource syntax: {}", .0.fragment)]
     MalformedResourceDirective(ErrorLocation),
-    #[error("invalid syntax: {0:?}")]
+    #[error("invalid syntax: {}", .0.fragment)]
     Nom(ErrorLocation, nom::error::ErrorKind),
+}
+
+impl ParseError {
+    pub fn location(&self) -> &ErrorLocation {
+        match self {
+            ParseError::MalformedString(loc) => loc,
+            ParseError::MalformedPath(loc) => loc,
+            ParseError::NotRelativePath(loc) => loc,
+            ParseError::InvalidGlobPattern(loc) => loc,
+            ParseError::UnknownDirective(loc) => loc,
+            ParseError::NonWALTERHash(loc) => loc,
+            ParseError::MalformedIncludeDirective(loc) => loc,
+            ParseError::MalformedResourceDirective(loc) => loc,
+            ParseError::Nom(loc, _) => loc,
+        }
+    }
 }
 
 type Result<'a, O = Input<'a>> = IResult<Input<'a>, O, ParseError>;
@@ -140,6 +181,10 @@ pub enum Directive<'a> {
 fn relative_path_string(input: Input) -> Result<(RelativePathBuf, Input)> {
     let (rest, (parsed_string, raw_string)) = string(input)?;
 
+    // disallow empty string
+    if parsed_string.len() == 0 {
+        return Err(Err::Failure(ParseError::MalformedPath(raw_string.into())));
+    }
     // convert to PathBuf, may be absolute
     let path = PathBuf::from_str(parsed_string.as_str()).or(Err(Err::Failure(
         ParseError::MalformedPath(raw_string.into()),
@@ -338,6 +383,7 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 
 pub fn parse_rtconfig(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError> {
     let (rest, result) = all_consuming(rtconfig)(text.into()).finish()?;
+    std::fs::write("./parsed.yaml", serde_yaml::to_string(&result).unwrap()).unwrap();
     if rest.len() > 0 {
         panic!("expected to fully parse input")
     }
