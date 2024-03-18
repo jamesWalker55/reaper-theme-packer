@@ -84,7 +84,7 @@ impl Color {
 
 impl mlua::UserData for Color {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("arr", |_, this, value: ()| Ok(this.arr()));
+        methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
     }
 }
 
@@ -95,7 +95,7 @@ fn unset(table: &mlua::Table, key: &str) {
 fn whitelist(table: &mlua::Table, keys: Vec<&str>) {
     let keys: HashSet<&str> = HashSet::from_iter(keys.into_iter());
     table
-        .for_each(|k: String, v: mlua::Value| {
+        .for_each(|k: String, _v: mlua::Value| {
             if !keys.contains(k.as_str()) {
                 unset(&table, k.as_str());
             }

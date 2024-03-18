@@ -1,19 +1,15 @@
 use std::{
     borrow::Cow,
-    cell::Cell,
     collections::HashMap,
-    fmt::format,
     fs,
-    path::{self, Path, PathBuf},
-    rc::Rc,
-    vec::IntoIter,
+    path::{Path, PathBuf},
 };
 
 use glob::Pattern;
 use ini::Ini;
 use log::{debug, warn};
 use relative_path::RelativePath;
-use serde::Serialize;
+
 use thiserror::Error;
 
 use crate::{

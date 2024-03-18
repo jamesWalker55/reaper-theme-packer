@@ -4,8 +4,8 @@ use nom::{
     branch::alt,
     bytes::complete::{escaped, tag, take, take_till, take_till1},
     character::complete::{alpha1, char, newline, space0, space1},
-    combinator::{all_consuming, cut, opt, recognize},
-    multi::{many0, many1, separated_list1},
+    combinator::{all_consuming, opt, recognize},
+    multi::{many0, many1},
     sequence::{delimited, pair, preceded, terminated, tuple, Tuple},
     Err, Finish, IResult, Parser, Slice,
 };
@@ -113,7 +113,7 @@ impl<'a> nom::error::ParseError<Input<'a>> for ParseError {
         ParseError::Nom(input.into(), kind)
     }
 
-    fn append(input: Input, kind: nom::error::ErrorKind, other: Self) -> Self {
+    fn append(_input: Input, _kind: nom::error::ErrorKind, other: Self) -> Self {
         other
     }
 }
