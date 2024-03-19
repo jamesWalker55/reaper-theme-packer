@@ -407,7 +407,7 @@ pub enum ReaperThemeContent<'a> {
 }
 
 fn reapertheme(input: Input) -> Result<Vec<ReaperThemeContent>> {
-    many1(alt((
+    many0(alt((
         walter_code.map(|x| ReaperThemeContent::Text(x)),
         expression.map(|x| ReaperThemeContent::Expression(x)),
     )))(input)
