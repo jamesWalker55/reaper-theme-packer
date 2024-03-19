@@ -64,29 +64,29 @@ impl Color {
         }
     }
 
-    pub fn value(&self) -> i32 {
+    pub fn value(&self) -> u32 {
         match self {
-            Self::RGB(r, g, b) => ((*r as i32) << 16) + ((*g as i32) << 8) + (*b as i32),
+            Self::RGB(r, g, b) => ((*r as u32) << 16) + ((*g as u32) << 8) + (*b as u32),
             Self::RGBA(r, g, b, a) => {
-                ((*r as i32) << 24) + ((*g as i32) << 16) + ((*b as i32) << 8) + (*a as i32)
+                ((*r as u32) << 24) + ((*g as u32) << 16) + ((*b as u32) << 8) + (*a as u32)
             }
         }
     }
 
-    pub fn value_rev(&self) -> i32 {
+    pub fn value_rev(&self) -> u32 {
         match self {
-            Self::RGB(r, g, b) => ((*b as i32) << 16) + ((*g as i32) << 8) + (*r as i32),
+            Self::RGB(r, g, b) => ((*b as u32) << 16) + ((*g as u32) << 8) + (*r as u32),
             Self::RGBA(r, g, b, a) => {
-                ((*a as i32) << 24) + ((*b as i32) << 16) + ((*g as i32) << 8) + (*r as i32)
+                ((*a as u32) << 24) + ((*b as u32) << 16) + ((*g as u32) << 8) + (*r as u32)
             }
         }
     }
 
     /// Subtract 0x1000000 from the reversed value. Used in *.ReaperTheme when a color has a togglable
     /// option, e.g. `col_main_bg` and `col_seltrack2`
-    fn negative(&self) -> Result<i32, ColorError> {
+    fn negative(&self) -> Result<i64, ColorError> {
         match self {
-            Self::RGB(..) => Ok(self.value_rev() - 0x1000000),
+            Self::RGB(..) => Ok(self.value_rev() as i64 - 0x1000000),
             Self::RGBA(..) => Err(ColorError::NegativeRGBA),
         }
     }
