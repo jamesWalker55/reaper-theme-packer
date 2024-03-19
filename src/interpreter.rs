@@ -91,6 +91,13 @@ impl Color {
             Self::RGBA(r, g, b, a) => format!("{r} {g} {b} {a}"),
         }
     }
+
+    fn with_alpha(&self, alpha: u8) -> Self {
+        match self {
+            Self::RGB(r, g, b) => Self::RGBA(*r, *g, *b, alpha),
+            Self::RGBA(r, g, b, _a) => Self::RGBA(*r, *g, *b, alpha),
+        }
+    }
 }
 
 impl mlua::UserData for Color {
@@ -99,6 +106,9 @@ impl mlua::UserData for Color {
         methods.add_method("negative", |_, this, _value: ()| {
             this.negative()
                 .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
+        methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
+            Ok(this.with_alpha(alpha))
         });
     }
 }
