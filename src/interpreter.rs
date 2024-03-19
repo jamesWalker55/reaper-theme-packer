@@ -15,6 +15,8 @@ enum ColorError {
     ValueOutOfBounds(u32, u8),
     #[error("invalid channel count `{0}`")]
     InvalidChannels(u8),
+    #[error("cannot apply negative() to RGBA color")]
+    NegativeRGBA,
 }
 
 impl Color {
@@ -74,6 +76,15 @@ impl Color {
         }
     }
 
+    /// Subtract 0x1000000 from the reversed value. Used in *.ReaperTheme when a color has a togglable
+    /// option, e.g. `col_main_bg` and `col_seltrack2`
+    fn negative(&self) -> Result<i32, ColorError> {
+        match self {
+            Self::RGB(..) => Ok(self.value_rev() - 0x1000000),
+            Self::RGBA(..) => Err(ColorError::NegativeRGBA),
+        }
+    }
+
     fn arr(&self) -> String {
         match self {
             Self::RGB(r, g, b) => format!("{r} {g} {b}"),
@@ -85,6 +96,10 @@ impl Color {
 impl mlua::UserData for Color {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
+        methods.add_method("negative", |_, this, _value: ()| {
+            this.negative()
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
     }
 }
 
