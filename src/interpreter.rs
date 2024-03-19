@@ -17,6 +17,12 @@ enum ColorError {
     InvalidChannels(u8),
     #[error("cannot apply negative() to RGBA color")]
     NegativeRGBA,
+    #[error("cannot perform arithmetic on two colors with different channels")]
+    ArithmeticChannelsMismatch,
+    #[error("color addition caused one of the channels to overflow past 255")]
+    ArithmeticOverflow,
+    #[error("color subtraction caused one of the channels to underflow below 0")]
+    ArithmeticUnderflow,
 }
 
 impl Color {
@@ -98,10 +104,69 @@ impl Color {
             Self::RGBA(r, g, b, _a) => Self::RGBA(*r, *g, *b, alpha),
         }
     }
+
+    fn is_rgb(&self) -> bool {
+        match self {
+            Color::RGB(..) => true,
+            Color::RGBA(..) => false,
+        }
+    }
+
+    fn is_rgba(&self) -> bool {
+        match self {
+            Color::RGB(..) => false,
+            Color::RGBA(..) => true,
+        }
+    }
+
+    fn add(&self, other: &Color) -> Result<Self, ColorError> {
+        match self {
+            Color::RGB(r, g, b) => match other {
+                Color::RGB(r2, g2, b2) => Ok(Color::RGB(
+                    r.checked_add(*r2).ok_or(ColorError::ArithmeticOverflow)?,
+                    g.checked_add(*g2).ok_or(ColorError::ArithmeticOverflow)?,
+                    b.checked_add(*b2).ok_or(ColorError::ArithmeticOverflow)?,
+                )),
+                Color::RGBA(..) => Err(ColorError::ArithmeticChannelsMismatch),
+            },
+            Color::RGBA(r, g, b, a) => match other {
+                Color::RGB(..) => Err(ColorError::ArithmeticChannelsMismatch),
+                Color::RGBA(r2, g2, b2, a2) => Ok(Color::RGBA(
+                    r.checked_add(*r2).ok_or(ColorError::ArithmeticOverflow)?,
+                    g.checked_add(*g2).ok_or(ColorError::ArithmeticOverflow)?,
+                    b.checked_add(*b2).ok_or(ColorError::ArithmeticOverflow)?,
+                    a.checked_add(*a2).ok_or(ColorError::ArithmeticOverflow)?,
+                )),
+            },
+        }
+    }
+
+    fn sub(&self, other: &Color) -> Result<Self, ColorError> {
+        match self {
+            Color::RGB(r, g, b) => match other {
+                Color::RGB(r2, g2, b2) => Ok(Color::RGB(
+                    r.checked_sub(*r2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    g.checked_sub(*g2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    b.checked_sub(*b2).ok_or(ColorError::ArithmeticUnderflow)?,
+                )),
+                Color::RGBA(..) => Err(ColorError::ArithmeticChannelsMismatch),
+            },
+            Color::RGBA(r, g, b, a) => match other {
+                Color::RGB(..) => Err(ColorError::ArithmeticChannelsMismatch),
+                Color::RGBA(r2, g2, b2, a2) => Ok(Color::RGBA(
+                    r.checked_sub(*r2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    g.checked_sub(*g2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    b.checked_sub(*b2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    a.checked_sub(*a2).ok_or(ColorError::ArithmeticUnderflow)?,
+                )),
+            },
+        }
+    }
 }
 
 impl mlua::UserData for Color {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+        // methods
         methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
         methods.add_method("negative", |_, this, _value: ()| {
             this.negative()
@@ -109,6 +174,16 @@ impl mlua::UserData for Color {
         });
         methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
             Ok(this.with_alpha(alpha))
+        });
+
+        // metamethods
+        methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: Color| {
+            this.add(&other)
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
+        methods.add_meta_method(mlua::MetaMethod::Sub, |_, this, other: Color| {
+            this.sub(&other)
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
         });
     }
 }
