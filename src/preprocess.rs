@@ -213,11 +213,15 @@ impl ThemeBuilder {
             mlua::Value::Boolean(false) => Ok("false".into()),
             mlua::Value::Integer(x) => Ok(x.to_string().into()),
             mlua::Value::Number(x) => Ok(x.to_string().into()),
-            mlua::Value::String(x) => Ok(x
-                .to_str()
-                .expect("expression evaluated into invalid utf8 string")
-                .to_string()
-                .into()),
+            mlua::Value::String(x) => {
+                let column = expr.get_utf8_column() - 3;
+                let x = x
+                    .to_str()
+                    .expect("expression evaluated into invalid utf8 string")
+                    .to_string();
+                let indented_x = indent::indent_by(column, x);
+                Ok(indented_x.into())
+            }
             mlua::Value::Table(_) => todo!("Table"),
             mlua::Value::Function(_) => todo!("Function"),
             mlua::Value::Thread(_) => todo!("Thread"),
