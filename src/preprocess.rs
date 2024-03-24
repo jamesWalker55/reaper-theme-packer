@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -8,7 +8,7 @@ use std::{
 use glob::Pattern;
 use ini::Ini;
 use log::{debug, warn};
-use relative_path::RelativePath;
+use relative_path::{RelativePath, RelativePathBuf};
 
 use thiserror::Error;
 
@@ -95,16 +95,20 @@ struct ThemeBuilder {
     config: Ini,
     resources: ResourceMap,
     skip_next_newline: bool,
+    root_path: PathBuf,
+    included_paths: HashSet<RelativePathBuf>,
 }
 
 impl ThemeBuilder {
-    fn new() -> Self {
+    fn new(root_path: &Path) -> Self {
         Self {
             lua: interpreter::new(),
             parts: Vec::new(),
             config: Ini::new(),
             resources: HashMap::new(),
             skip_next_newline: false,
+            root_path: root_path.to_path_buf(),
+            included_paths: HashSet::new(),
         }
     }
 
@@ -148,6 +152,14 @@ impl ThemeBuilder {
             }
         };
         Ok(())
+    }
+
+    fn root_path(&self) -> &Path {
+        self.root_path.as_path()
+    }
+
+    fn add_included_path(&mut self, path: &RelativePath) -> bool {
+        self.included_paths.insert(path.to_relative_path_buf())
     }
 
     fn import_config(&mut self, path: &Path) -> Result {
@@ -337,6 +349,8 @@ impl ThemeBuilder {
 }
 
 fn _preprocess(mut builder: &mut ThemeBuilder, path: &Path) -> Result {
+    builder.add_included_path(&path);
+
     let text = read(&path)?;
     let contents = parse_rtconfig(&path, &text)?;
 
@@ -358,8 +372,12 @@ fn _preprocess(mut builder: &mut ThemeBuilder, path: &Path) -> Result {
 pub fn preprocess(
     path: &Path,
     globals: Option<HashMap<String, String>>,
+    root_path: Option<&Path>,
 ) -> Result<(String, Ini, ResourceMap)> {
-    let mut builder = ThemeBuilder::new();
+    let mut builder = match root_path {
+        Some(root_path) => ThemeBuilder::new(root_path),
+        None => ThemeBuilder::new(PathBuf::from(".").as_path()),
+    };
 
     if let Some(globals) = globals {
         let table = builder.lua.globals();
