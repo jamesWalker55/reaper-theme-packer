@@ -1,13 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
-use mlua::FromLua;
+use mlua::{FromLua, IntoLua};
 use thiserror::Error;
-
-#[derive(Debug, PartialEq, Eq, Clone, FromLua)]
-pub enum Color {
-    RGB(u8, u8, u8),
-    RGBA(u8, u8, u8, u8),
-}
 
 #[derive(Error, Debug)]
 enum ColorError {
@@ -25,8 +19,186 @@ enum ColorError {
     ArithmeticUnderflow,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, FromLua)]
+pub struct RGB(u8, u8, u8);
+
+impl RGB {
+    fn from_value(value: u32) -> Self {
+        Self(
+            u8::try_from((value & 0xff0000) >> 16).unwrap(),
+            u8::try_from((value & 0x00ff00) >> 8).unwrap(),
+            u8::try_from(value & 0x0000ff).unwrap(),
+        )
+    }
+
+    pub fn value(&self) -> u32 {
+        ((self.0 as u32) << 16) + ((self.1 as u32) << 8) + (self.2 as u32)
+    }
+
+    pub fn value_rev(&self) -> u32 {
+        ((self.2 as u32) << 16) + ((self.1 as u32) << 8) + (self.0 as u32)
+    }
+
+    fn arr(&self) -> String {
+        format!("{} {} {}", self.0, self.1, self.2)
+    }
+
+    fn with_alpha(&self, alpha: u8) -> RGBA {
+        RGBA(self.0, self.1, self.2, alpha)
+    }
+
+    fn add(&self, other: &Self) -> Result<Self, ColorError> {
+        Ok(Self(
+            self.0
+                .checked_add(other.0)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+            self.1
+                .checked_add(other.1)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+            self.2
+                .checked_add(other.2)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+        ))
+    }
+
+    fn sub(&self, other: &Self) -> Result<Self, ColorError> {
+        Ok(Self(
+            self.0
+                .checked_sub(other.0)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+            self.1
+                .checked_sub(other.1)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+            self.2
+                .checked_sub(other.2)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+        ))
+    }
+
+    /// Subtract 0x1000000 from the reversed value. Used in *.ReaperTheme when a color has a togglable
+    /// option, e.g. `col_main_bg` and `col_seltrack2`
+    fn negative(&self) -> i64 {
+        self.value_rev() as i64 - 0x1000000
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, FromLua)]
+pub struct RGBA(u8, u8, u8, u8);
+
+impl RGBA {
+    fn from_value(value: u32) -> Self {
+        Self(
+            u8::try_from((value & 0xff000000) >> 24).unwrap(),
+            u8::try_from((value & 0x00ff0000) >> 16).unwrap(),
+            u8::try_from((value & 0x0000ff00) >> 8).unwrap(),
+            u8::try_from(value & 0x000000ff).unwrap(),
+        )
+    }
+
+    pub fn value(&self) -> u32 {
+        ((self.0 as u32) << 24) + ((self.1 as u32) << 16) + ((self.2 as u32) << 8) + (self.3 as u32)
+    }
+
+    pub fn value_rev(&self) -> u32 {
+        ((self.3 as u32) << 24) + ((self.2 as u32) << 16) + ((self.1 as u32) << 8) + (self.0 as u32)
+    }
+
+    fn arr(&self) -> String {
+        format!("{} {} {} {}", self.0, self.1, self.2, self.3)
+    }
+
+    fn with_alpha(&self, alpha: u8) -> RGBA {
+        RGBA(self.0, self.1, self.2, alpha)
+    }
+
+    fn add(&self, other: &Self) -> Result<Self, ColorError> {
+        Ok(Self(
+            self.0
+                .checked_add(other.0)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+            self.1
+                .checked_add(other.1)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+            self.2
+                .checked_add(other.2)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+            self.3
+                .checked_add(other.3)
+                .ok_or(ColorError::ArithmeticOverflow)?,
+        ))
+    }
+
+    fn sub(&self, other: &Self) -> Result<Self, ColorError> {
+        Ok(Self(
+            self.0
+                .checked_sub(other.0)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+            self.1
+                .checked_sub(other.1)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+            self.2
+                .checked_sub(other.2)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+            self.3
+                .checked_sub(other.3)
+                .ok_or(ColorError::ArithmeticUnderflow)?,
+        ))
+    }
+
+    fn to_rgb(&self) -> RGB {
+        RGB(self.0, self.1, self.2)
+    }
+}
+
+impl mlua::UserData for RGB {
+    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+        // methods
+        methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
+        methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
+            Ok(this.with_alpha(alpha))
+        });
+        methods.add_method("negative", |_, this, _value: ()| Ok(this.negative()));
+
+        // metamethods
+        methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: RGB| {
+            this.add(&other)
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
+        methods.add_meta_method(mlua::MetaMethod::Sub, |_, this, other: RGB| {
+            this.sub(&other)
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
+    }
+}
+
+impl mlua::UserData for RGBA {
+    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+        // methods
+        methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
+        methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
+            Ok(this.with_alpha(alpha))
+        });
+        methods.add_method("to_rgb", |_, this, _value: ()| Ok(this.to_rgb()));
+
+        // metamethods
+        methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: RGBA| {
+            this.add(&other)
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
+        methods.add_meta_method(mlua::MetaMethod::Sub, |_, this, other: RGBA| {
+            this.sub(&other)
+                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
+        });
+    }
+}
+
+enum Color {
+    RGB(RGB),
+    RGBA(RGBA),
+}
+
 impl Color {
-    fn new(value: u32) -> Result<Self, ColorError> {
+    fn from_value(value: u32) -> Result<Self, ColorError> {
         if value <= 0xffffff {
             Self::new_with_channels(value, 3)
         } else {
@@ -38,153 +210,33 @@ impl Color {
         match channels {
             3 => {
                 if value <= 0xffffff {
-                    Ok(Self::RGB(
+                    Ok(Self::RGB(RGB(
                         u8::try_from((value & 0xff0000) >> 16).unwrap(),
                         u8::try_from((value & 0x00ff00) >> 8).unwrap(),
                         u8::try_from(value & 0x0000ff).unwrap(),
-                    ))
+                    )))
                 } else {
                     Err(ColorError::ValueOutOfBounds(value, 3))
                 }
             }
-            4 => Ok(Self::RGBA(
+            4 => Ok(Self::RGBA(RGBA(
                 u8::try_from((value & 0xff000000) >> 24).unwrap(),
                 u8::try_from((value & 0x00ff0000) >> 16).unwrap(),
                 u8::try_from((value & 0x0000ff00) >> 8).unwrap(),
                 u8::try_from(value & 0x000000ff).unwrap(),
-            )),
+            ))),
             x => Err(ColorError::InvalidChannels(x)),
-        }
-    }
-
-    fn channels(&self) -> u8 {
-        match self {
-            Self::RGB(..) => 3,
-            Self::RGBA(..) => 4,
-        }
-    }
-
-    pub fn value(&self) -> u32 {
-        match self {
-            Self::RGB(r, g, b) => ((*r as u32) << 16) + ((*g as u32) << 8) + (*b as u32),
-            Self::RGBA(r, g, b, a) => {
-                ((*r as u32) << 24) + ((*g as u32) << 16) + ((*b as u32) << 8) + (*a as u32)
-            }
-        }
-    }
-
-    pub fn value_rev(&self) -> u32 {
-        match self {
-            Self::RGB(r, g, b) => ((*b as u32) << 16) + ((*g as u32) << 8) + (*r as u32),
-            Self::RGBA(r, g, b, a) => {
-                ((*a as u32) << 24) + ((*b as u32) << 16) + ((*g as u32) << 8) + (*r as u32)
-            }
-        }
-    }
-
-    /// Subtract 0x1000000 from the reversed value. Used in *.ReaperTheme when a color has a togglable
-    /// option, e.g. `col_main_bg` and `col_seltrack2`
-    fn negative(&self) -> Result<i64, ColorError> {
-        match self {
-            Self::RGB(..) => Ok(self.value_rev() as i64 - 0x1000000),
-            Self::RGBA(..) => Err(ColorError::NegativeRGBA),
-        }
-    }
-
-    fn arr(&self) -> String {
-        match self {
-            Self::RGB(r, g, b) => format!("{r} {g} {b}"),
-            Self::RGBA(r, g, b, a) => format!("{r} {g} {b} {a}"),
-        }
-    }
-
-    fn with_alpha(&self, alpha: u8) -> Self {
-        match self {
-            Self::RGB(r, g, b) => Self::RGBA(*r, *g, *b, alpha),
-            Self::RGBA(r, g, b, _a) => Self::RGBA(*r, *g, *b, alpha),
-        }
-    }
-
-    fn is_rgb(&self) -> bool {
-        match self {
-            Color::RGB(..) => true,
-            Color::RGBA(..) => false,
-        }
-    }
-
-    fn is_rgba(&self) -> bool {
-        match self {
-            Color::RGB(..) => false,
-            Color::RGBA(..) => true,
-        }
-    }
-
-    fn add(&self, other: &Color) -> Result<Self, ColorError> {
-        match self {
-            Color::RGB(r, g, b) => match other {
-                Color::RGB(r2, g2, b2) => Ok(Color::RGB(
-                    r.checked_add(*r2).ok_or(ColorError::ArithmeticOverflow)?,
-                    g.checked_add(*g2).ok_or(ColorError::ArithmeticOverflow)?,
-                    b.checked_add(*b2).ok_or(ColorError::ArithmeticOverflow)?,
-                )),
-                Color::RGBA(..) => Err(ColorError::ArithmeticChannelsMismatch),
-            },
-            Color::RGBA(r, g, b, a) => match other {
-                Color::RGB(..) => Err(ColorError::ArithmeticChannelsMismatch),
-                Color::RGBA(r2, g2, b2, a2) => Ok(Color::RGBA(
-                    r.checked_add(*r2).ok_or(ColorError::ArithmeticOverflow)?,
-                    g.checked_add(*g2).ok_or(ColorError::ArithmeticOverflow)?,
-                    b.checked_add(*b2).ok_or(ColorError::ArithmeticOverflow)?,
-                    a.checked_add(*a2).ok_or(ColorError::ArithmeticOverflow)?,
-                )),
-            },
-        }
-    }
-
-    fn sub(&self, other: &Color) -> Result<Self, ColorError> {
-        match self {
-            Color::RGB(r, g, b) => match other {
-                Color::RGB(r2, g2, b2) => Ok(Color::RGB(
-                    r.checked_sub(*r2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    g.checked_sub(*g2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    b.checked_sub(*b2).ok_or(ColorError::ArithmeticUnderflow)?,
-                )),
-                Color::RGBA(..) => Err(ColorError::ArithmeticChannelsMismatch),
-            },
-            Color::RGBA(r, g, b, a) => match other {
-                Color::RGB(..) => Err(ColorError::ArithmeticChannelsMismatch),
-                Color::RGBA(r2, g2, b2, a2) => Ok(Color::RGBA(
-                    r.checked_sub(*r2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    g.checked_sub(*g2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    b.checked_sub(*b2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    a.checked_sub(*a2).ok_or(ColorError::ArithmeticUnderflow)?,
-                )),
-            },
         }
     }
 }
 
-impl mlua::UserData for Color {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
-        // methods
-        methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
-        methods.add_method("negative", |_, this, _value: ()| {
-            this.negative()
-                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
-        });
-        methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
-            Ok(this.with_alpha(alpha))
-        });
-
-        // metamethods
-        methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: Color| {
-            this.add(&other)
-                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
-        });
-        methods.add_meta_method(mlua::MetaMethod::Sub, |_, this, other: Color| {
-            this.sub(&other)
-                .map_err(|err| mlua::Error::ExternalError(Arc::new(err)))
-        });
+impl<'lua> IntoLua<'lua> for Color {
+    fn into_lua(self, lua: &'lua mlua::Lua) -> mlua::Result<mlua::Value<'lua>> {
+        let userdata = match self {
+            Color::RGB(x) => lua.create_userdata(x),
+            Color::RGBA(x) => lua.create_userdata(x),
+        }?;
+        Ok(mlua::Value::UserData(userdata))
     }
 }
 
@@ -238,7 +290,7 @@ pub fn new() -> mlua::Lua {
                 let result = if let Some(channels) = channels {
                     Color::new_with_channels(value, channels)
                 } else {
-                    Color::new(value)
+                    Color::from_value(value)
                 };
                 let color = result.map_err(|err| mlua::Error::ExternalError(Arc::new(err)))?;
                 Ok(color)
@@ -247,12 +299,12 @@ pub fn new() -> mlua::Lua {
         globals.set("color", func).unwrap();
 
         let func = lua
-            .create_function(|_, (r, g, b): (u8, u8, u8)| Ok(Color::RGB(r, g, b)))
+            .create_function(|_, (r, g, b): (u8, u8, u8)| Ok(RGB(r, g, b)))
             .unwrap();
         globals.set("rgb", func).unwrap();
 
         let func = lua
-            .create_function(|_, (r, g, b, a): (u8, u8, u8, u8)| Ok(Color::RGBA(r, g, b, a)))
+            .create_function(|_, (r, g, b, a): (u8, u8, u8, u8)| Ok(RGBA(r, g, b, a)))
             .unwrap();
         globals.set("rgba", func).unwrap();
 
@@ -312,20 +364,20 @@ mod tests {
     fn test_rgb() {
         let lua = new();
 
-        let result: Color = lua.load("rgb(255, 255, 255)").eval().unwrap();
-        let expected = Color::RGB(255, 255, 255);
+        let result: RGB = lua.load("rgb(255, 255, 255)").eval().unwrap();
+        let expected = RGB(255, 255, 255);
         assert_eq!(result, expected);
 
-        let result: Color = lua.load("rgb(1, 2, 3)").eval().unwrap();
-        let expected = Color::RGB(1, 2, 3);
+        let result: RGB = lua.load("rgb(1, 2, 3)").eval().unwrap();
+        let expected = RGB(1, 2, 3);
         assert_eq!(result, expected);
 
-        let result: Color = lua.load("rgba(255, 255, 255, 255)").eval().unwrap();
-        let expected = Color::RGBA(255, 255, 255, 255);
+        let result: RGBA = lua.load("rgba(255, 255, 255, 255)").eval().unwrap();
+        let expected = RGBA(255, 255, 255, 255);
         assert_eq!(result, expected);
 
-        let result: Color = lua.load("rgba(1, 2, 3, 4)").eval().unwrap();
-        let expected = Color::RGBA(1, 2, 3, 4);
+        let result: RGBA = lua.load("rgba(1, 2, 3, 4)").eval().unwrap();
+        let expected = RGBA(1, 2, 3, 4);
         assert_eq!(result, expected);
     }
 
@@ -335,10 +387,10 @@ mod tests {
 
         lua.load("foo = rgb(11, 22, 33)").exec().unwrap();
 
-        let _: Color = lua.load("foo").eval().unwrap();
+        let _: RGB = lua.load("foo").eval().unwrap();
 
         // try to take the color again, this will fail if the user data destructed
-        let _: Color = lua.load("foo").eval().unwrap();
+        let _: RGB = lua.load("foo").eval().unwrap();
 
         // alternatively, assert that it fails:
         // let result: mlua::Result<Color> = lua.load("foo").eval();
@@ -365,16 +417,16 @@ mod tests {
     fn test_color() {
         let lua = new();
 
-        let result: Color = lua.load("color(0xffffff)").eval().unwrap();
-        let expected = Color::RGB(255, 255, 255);
+        let result: RGB = lua.load("color(0xffffff)").eval().unwrap();
+        let expected = RGB(255, 255, 255);
         assert_eq!(result, expected);
 
-        let result: Color = lua.load("color(0xffffff, 4)").eval().unwrap();
-        let expected = Color::RGBA(0, 255, 255, 255);
+        let result: RGBA = lua.load("color(0xffffff, 4)").eval().unwrap();
+        let expected = RGBA(0, 255, 255, 255);
         assert_eq!(result, expected);
 
-        let result: Color = lua.load("color(0x11223344)").eval().unwrap();
-        let expected = Color::RGBA(0x11, 0x22, 0x33, 0x44);
+        let result: RGBA = lua.load("color(0x11223344)").eval().unwrap();
+        let expected = RGBA(0x11, 0x22, 0x33, 0x44);
         assert_eq!(result, expected);
     }
 

@@ -13,7 +13,7 @@ use relative_path::RelativePath;
 use thiserror::Error;
 
 use crate::{
-    interpreter::{self, Color},
+    interpreter::{self, RGB, RGBA},
     parser::{
         self, parse_reapertheme, Directive, ErrorLocation, ParseError, ReaperThemeContent,
         RtconfigContent,
@@ -226,7 +226,13 @@ impl ThemeBuilder {
             mlua::Value::Function(_) => todo!("Function"),
             mlua::Value::Thread(_) => todo!("Thread"),
             mlua::Value::UserData(userdata) => {
-                if let Ok(color) = userdata.borrow::<Color>() {
+                if let Ok(color) = userdata.borrow::<RGB>() {
+                    if is_rtconfig {
+                        Ok(color.value().to_string().into())
+                    } else {
+                        Ok(color.value_rev().to_string().into())
+                    }
+                } else if let Ok(color) = userdata.borrow::<RGBA>() {
                     if is_rtconfig {
                         Ok(color.value().to_string().into())
                     } else {
