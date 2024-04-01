@@ -54,6 +54,28 @@ front tcp.volume
 set tcp.volume [1 2 3 4]
 ```
 
+The above files will be compiled down into a `rtconfig.txt` and a `<your theme name>.ReaperTheme` file within the output zip:
+
+**rtconfig.txt**
+
+```plain
+
+front tcp.volume
+
+set tcp.volume [1 2 3 4]
+
+
+set tcp.volume.label.color [0 0 255]
+```
+
+**\<your theme name\>.ReaperTheme**
+
+```ini
+[color theme]
+col_tr1_bg=2168331
+col_tr2_bg=255
+```
+
 ## Lua Evaluation
 
 Input:
