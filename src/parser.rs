@@ -354,7 +354,9 @@ fn rtconfig_line(input: Input) -> Result<Vec<RtconfigContent>> {
 }
 
 fn rtconfig_newline(input: Input) -> Result<RtconfigContent> {
-    newline.map(|_| RtconfigContent::Newline).parse(input)
+    preceded(opt(char('\r')), newline)
+        .map(|_| RtconfigContent::Newline)
+        .parse(input)
 }
 
 fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
