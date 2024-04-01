@@ -6,7 +6,7 @@ use nom::{
     character::complete::{alpha1, char, newline, space0, space1},
     combinator::{all_consuming, opt, recognize},
     multi::{many0, many1},
-    sequence::{delimited, pair, preceded, terminated, tuple, Tuple},
+    sequence::{delimited, pair, preceded, terminated, tuple},
     Err, Finish, IResult, Parser, Slice,
 };
 use nom_locate::LocatedSpan;
@@ -391,13 +391,6 @@ pub fn parse_rtconfig(text: &str) -> std::result::Result<Vec<RtconfigContent>, P
     }
 
     Ok(result)
-}
-
-fn ini_text(input: Input) -> Result {
-    recognize(many1(alt((
-        take_till1(|x| x == '#'),
-        allowed_walter_hash_char,
-    ))))(input)
 }
 
 #[derive(Debug, Serialize)]
