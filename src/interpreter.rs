@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use mlua::FromLua;
+use terrors::OneOf;
 use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone, FromLua)]
@@ -9,32 +10,70 @@ pub enum Color {
     RGBA(u8, u8, u8, u8),
 }
 
-#[derive(Error, Debug)]
-enum ColorError {
-    #[error("value `{0}` does not fit within {1} channels")]
-    ValueOutOfBounds(u32, u8),
+// #[derive(Error, Debug)]
+// enum ColorError {
+//     #[error("invalid channel count `{0}`")]
+//     InvalidChannels(u8),
+//     #[error("cannot apply negative() to RGBA color")]
+//     NegativeRGBA,
+//     #[error("cannot perform arithmetic on two colors with different channels")]
+//     ArithmeticChannelsMismatch,
+//     #[error("color addition caused one of the channels to overflow past 255")]
+//     ArithmeticOverflow,
+//     #[error("color subtraction caused one of the channels to underflow below 0")]
+//     ArithmeticUnderflow,
+// }
+
+pub(crate) mod errors {
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    #[error("value `{value}` does not fit within {channels} channels")]
+    pub(crate) struct ValueOutOfBounds {
+        pub(crate) value: u32,
+        pub(crate) channels: u8,
+    }
+
+    #[derive(Error, Debug)]
     #[error("invalid channel count `{0}`")]
-    InvalidChannels(u8),
+    pub(crate) struct InvalidChannels(pub(crate) u8);
+
+    #[derive(Error, Debug)]
     #[error("cannot apply negative() to RGBA color")]
-    NegativeRGBA,
+    pub(crate) struct NegativeRGBA;
+
+    #[derive(Error, Debug)]
     #[error("cannot perform arithmetic on two colors with different channels")]
-    ArithmeticChannelsMismatch,
+    pub(crate) struct ArithmeticChannelsMismatch;
+
+    #[derive(Error, Debug)]
     #[error("color addition caused one of the channels to overflow past 255")]
-    ArithmeticOverflow,
+    pub(crate) struct ArithmeticOverflow;
+
+    #[derive(Error, Debug)]
     #[error("color subtraction caused one of the channels to underflow below 0")]
-    ArithmeticUnderflow,
+    pub(crate) struct ArithmeticUnderflow;
 }
 
 impl Color {
-    fn new(value: u32) -> Result<Self, ColorError> {
-        if value <= 0xffffff {
+    fn new(value: u32) -> Result<Self, errors::ValueOutOfBounds> {
+        let result = if value <= 0xffffff {
             Self::new_with_channels(value, 3)
         } else {
             Self::new_with_channels(value, 4)
-        }
+        };
+        result.map_err(|err| {
+            let Ok(err) = err.narrow::<errors::ValueOutOfBounds, _>() else {
+                panic!("channel configuration must be correct here");
+            };
+            err
+        })
     }
 
-    fn new_with_channels(value: u32, channels: u8) -> Result<Self, ColorError> {
+    fn new_with_channels(
+        value: u32,
+        channels: u8,
+    ) -> Result<Self, OneOf<(errors::ValueOutOfBounds, errors::InvalidChannels)>> {
         match channels {
             3 => {
                 if value <= 0xffffff {
@@ -44,7 +83,7 @@ impl Color {
                         u8::try_from(value & 0x0000ff).unwrap(),
                     ))
                 } else {
-                    Err(ColorError::ValueOutOfBounds(value, 3))
+                    Err(OneOf::new(errors::ValueOutOfBounds { value, channels: 3 }))
                 }
             }
             4 => Ok(Self::RGBA(
@@ -53,7 +92,7 @@ impl Color {
                 u8::try_from((value & 0x0000ff00) >> 8).unwrap(),
                 u8::try_from(value & 0x000000ff).unwrap(),
             )),
-            x => Err(ColorError::InvalidChannels(x)),
+            x => Err(OneOf::new(errors::InvalidChannels(x))),
         }
     }
 
@@ -84,10 +123,10 @@ impl Color {
 
     /// Subtract 0x1000000 from the reversed value. Used in *.ReaperTheme when a color has a togglable
     /// option, e.g. `col_main_bg` and `col_seltrack2`
-    fn negative(&self) -> Result<i64, ColorError> {
+    fn negative(&self) -> Result<i64, errors::NegativeRGBA> {
         match self {
             Self::RGB(..) => Ok(self.value_rev() as i64 - 0x1000000),
-            Self::RGBA(..) => Err(ColorError::NegativeRGBA),
+            Self::RGBA(..) => Err(errors::NegativeRGBA),
         }
     }
 
@@ -119,45 +158,77 @@ impl Color {
         }
     }
 
-    fn add(&self, other: &Color) -> Result<Self, ColorError> {
+    fn add(
+        &self,
+        other: &Color,
+    ) -> Result<
+        Self,
+        OneOf<(
+            errors::ArithmeticOverflow,
+            errors::ArithmeticChannelsMismatch,
+        )>,
+    > {
         match self {
             Color::RGB(r, g, b) => match other {
                 Color::RGB(r2, g2, b2) => Ok(Color::RGB(
-                    r.checked_add(*r2).ok_or(ColorError::ArithmeticOverflow)?,
-                    g.checked_add(*g2).ok_or(ColorError::ArithmeticOverflow)?,
-                    b.checked_add(*b2).ok_or(ColorError::ArithmeticOverflow)?,
+                    r.checked_add(*r2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
+                    g.checked_add(*g2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
+                    b.checked_add(*b2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
                 )),
-                Color::RGBA(..) => Err(ColorError::ArithmeticChannelsMismatch),
+                Color::RGBA(..) => Err(OneOf::new(errors::ArithmeticChannelsMismatch)),
             },
             Color::RGBA(r, g, b, a) => match other {
-                Color::RGB(..) => Err(ColorError::ArithmeticChannelsMismatch),
+                Color::RGB(..) => Err(OneOf::new(errors::ArithmeticChannelsMismatch)),
                 Color::RGBA(r2, g2, b2, a2) => Ok(Color::RGBA(
-                    r.checked_add(*r2).ok_or(ColorError::ArithmeticOverflow)?,
-                    g.checked_add(*g2).ok_or(ColorError::ArithmeticOverflow)?,
-                    b.checked_add(*b2).ok_or(ColorError::ArithmeticOverflow)?,
-                    a.checked_add(*a2).ok_or(ColorError::ArithmeticOverflow)?,
+                    r.checked_add(*r2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
+                    g.checked_add(*g2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
+                    b.checked_add(*b2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
+                    a.checked_add(*a2)
+                        .ok_or(OneOf::new(errors::ArithmeticOverflow))?,
                 )),
             },
         }
     }
 
-    fn sub(&self, other: &Color) -> Result<Self, ColorError> {
+    fn sub(
+        &self,
+        other: &Color,
+    ) -> Result<
+        Self,
+        OneOf<(
+            errors::ArithmeticUnderflow,
+            errors::ArithmeticChannelsMismatch,
+        )>,
+    > {
         match self {
             Color::RGB(r, g, b) => match other {
                 Color::RGB(r2, g2, b2) => Ok(Color::RGB(
-                    r.checked_sub(*r2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    g.checked_sub(*g2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    b.checked_sub(*b2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    r.checked_sub(*r2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
+                    g.checked_sub(*g2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
+                    b.checked_sub(*b2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
                 )),
-                Color::RGBA(..) => Err(ColorError::ArithmeticChannelsMismatch),
+                Color::RGBA(..) => Err(OneOf::new(errors::ArithmeticChannelsMismatch)),
             },
             Color::RGBA(r, g, b, a) => match other {
-                Color::RGB(..) => Err(ColorError::ArithmeticChannelsMismatch),
+                Color::RGB(..) => Err(OneOf::new(errors::ArithmeticChannelsMismatch)),
                 Color::RGBA(r2, g2, b2, a2) => Ok(Color::RGBA(
-                    r.checked_sub(*r2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    g.checked_sub(*g2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    b.checked_sub(*b2).ok_or(ColorError::ArithmeticUnderflow)?,
-                    a.checked_sub(*a2).ok_or(ColorError::ArithmeticUnderflow)?,
+                    r.checked_sub(*r2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
+                    g.checked_sub(*g2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
+                    b.checked_sub(*b2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
+                    a.checked_sub(*a2)
+                        .ok_or(OneOf::new(errors::ArithmeticUnderflow))?,
                 )),
             },
         }

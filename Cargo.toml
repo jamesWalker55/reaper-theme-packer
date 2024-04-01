@@ -21,6 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 mlua = { version = "0.9", features = ["lua54", "vendored", "macros"] }
 clap = { version = "4.5.3", features = ["derive"] }
 indent = "0.1.1"
+terrors = "0.2.3"
 
 [dev-dependencies]
 indoc = "2"

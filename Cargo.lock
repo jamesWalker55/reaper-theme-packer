@@ -739,6 +739,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "terrors",
  "thiserror",
  "zip",
 ]
@@ -912,6 +913,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "terrors"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a3a59b06d08911904d963547a31c846a182a4a61bc1827a1a310b870b7ab57f"
 
 [[package]]
 name = "thiserror"
