@@ -1,3 +1,3 @@
 fn main() {
-    reaper_theme_builder_2::main();
+    reaper_theme_packer::main();
 }

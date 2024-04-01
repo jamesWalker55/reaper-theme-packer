@@ -1,5 +1,5 @@
 [package]
-name = "reaper-theme-builder-2"
+name = "reaper-theme-packer"
 version = "0.1.0"
 edition = "2021"
 

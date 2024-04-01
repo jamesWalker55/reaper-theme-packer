@@ -12,7 +12,7 @@ mod theme;
 pub fn setup_logging() {
     use env_logger::Env;
 
-    let env = Env::default().default_filter_or("reaper_theme_builder_2=warn");
+    let env = Env::default().default_filter_or("reaper_theme_packer=warn");
 
     env_logger::init_from_env(env);
 }
