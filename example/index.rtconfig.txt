@@ -1,0 +1,6 @@
+#include "constants.lua"
+#include "stuff.ini"
+
+#include "stuff.rtconfig.txt"
+
+set tcp.volume.label.color [#{my_colors.blue:arr()}]
