@@ -227,17 +227,9 @@ impl ThemeBuilder {
             mlua::Value::Thread(_) => todo!("Thread"),
             mlua::Value::UserData(userdata) => {
                 if let Ok(color) = userdata.borrow::<RGB>() {
-                    if is_rtconfig {
-                        Ok(color.value().to_string().into())
-                    } else {
-                        Ok(color.value_rev().to_string().into())
-                    }
+                    Ok(color.value_rev().to_string().into())
                 } else if let Ok(color) = userdata.borrow::<RGBA>() {
-                    if is_rtconfig {
-                        Ok(color.value().to_string().into())
-                    } else {
-                        Ok(color.value_rev().to_string().into())
-                    }
+                    Ok(color.value_rev().to_string().into())
                 } else {
                     todo!("UserData")
                 }
