@@ -1,4 +1,8 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    fmt::{LowerHex, Pointer, UpperHex},
+    sync::Arc,
+};
 
 use mlua::{FromLua, IntoLua};
 use thiserror::Error;
@@ -82,6 +86,18 @@ impl RGB {
     }
 }
 
+impl UpperHex for RGB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02X}{:02X}{:02X}", self.2, self.1, self.0)
+    }
+}
+
+impl LowerHex for RGB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02x}{:02x}{:02x}", self.2, self.1, self.0)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, FromLua)]
 pub struct RGBA(u8, u8, u8, u8);
 
@@ -150,6 +166,26 @@ impl RGBA {
     }
 }
 
+impl UpperHex for RGBA {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:02X}{:02X}{:02X}{:02X}",
+            self.3, self.2, self.1, self.0
+        )
+    }
+}
+
+impl LowerHex for RGBA {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:02x}{:02x}{:02x}{:02x}",
+            self.3, self.2, self.1, self.0
+        )
+    }
+}
+
 impl mlua::UserData for RGB {
     fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
         // methods
@@ -158,6 +194,7 @@ impl mlua::UserData for RGB {
             Ok(this.with_alpha(alpha))
         });
         methods.add_method("negative", |_, this, _value: ()| Ok(this.negative()));
+        methods.add_method("hex", |_, this, _value: ()| Ok(format!("{:X}", this)));
 
         // metamethods
         methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: RGB| {
@@ -179,6 +216,7 @@ impl mlua::UserData for RGBA {
             Ok(this.with_alpha(alpha))
         });
         methods.add_method("to_rgb", |_, this, _value: ()| Ok(this.to_rgb()));
+        methods.add_method("hex", |_, this, _value: ()| Ok(format!("{:X}", this)));
 
         // metamethods
         methods.add_meta_method(mlua::MetaMethod::Add, |_, this, other: RGBA| {
