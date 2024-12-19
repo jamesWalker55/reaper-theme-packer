@@ -299,7 +299,6 @@ impl ThemeBuilder {
         );
 
         for path in resources {
-            debug!("{path:?}");
             match path {
                 Err(err) => warn!(
                     "failed to get resources in path `{}`: {}",
