@@ -385,7 +385,6 @@ fn rtconfig(input: Input) -> Result<Vec<RtconfigContent>> {
 
 pub fn parse_rtconfig(text: &str) -> std::result::Result<Vec<RtconfigContent>, ParseError> {
     let (rest, result) = all_consuming(rtconfig)(text.into()).finish()?;
-    std::fs::write("./parsed.yaml", serde_yaml::to_string(&result).unwrap()).unwrap();
     if rest.len() > 0 {
         panic!("expected to fully parse input")
     }
