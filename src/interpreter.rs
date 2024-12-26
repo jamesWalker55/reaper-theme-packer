@@ -389,6 +389,14 @@ pub fn new() -> mlua::Lua {
             })
             .unwrap();
         globals.set("blend", func).unwrap();
+
+        // function to get an environment variable
+        let func = lua
+            .create_function(|_, (name,): (String,)| {
+                std::env::var(&name).map_err(|err| mlua::Error::external(err))
+            })
+            .unwrap();
+        globals.set("env", func).unwrap();
     }
 
     lua
