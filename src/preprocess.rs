@@ -131,7 +131,17 @@ impl ThemeBuilder {
             }
             RtconfigContent::Code(text) => self.parts.push(text.fragment().to_string()),
             RtconfigContent::Comment(text) => self.parts.push(text.fragment().to_string()),
-            RtconfigContent::Expression(text) => self.feed_expression(text).map_err(|err| {
+            RtconfigContent::Expression(text) => self.feed_expression(text).and_then(|_| {
+                let mut directives = interpreter::NEW_RESOURCE_PATHS.lock().unwrap();
+                for x in directives.iter() {
+                    let Directive::Resource { pattern, dest } = x else {
+                        panic!("NEW_RESOURCE_PATHS should only contain Directive::Resource instances")
+                    };
+                    self.feed_directive_resource(&pattern, &dest, &source_path);
+                }
+                directives.clear();;
+                Ok(())
+            }).map_err(|err| {
                 PreprocessError::EvaluateError(source_path.into(), text.into(), err)
             })?,
             RtconfigContent::Directive(dir) => {

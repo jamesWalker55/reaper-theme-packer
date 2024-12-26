@@ -1,11 +1,18 @@
 use std::{
     collections::HashSet,
     fmt::{LowerHex, Pointer, UpperHex},
-    sync::Arc,
+    sync::{Arc, LazyLock, Mutex},
 };
 
 use mlua::{FromLua, IntoLua};
+use relative_path::RelativePathBuf;
 use thiserror::Error;
+
+use crate::parser::{Directive, ParseError};
+
+// this is to allow adding resources from Lua code, i have no idea what other way to do this
+pub(crate) static NEW_RESOURCE_PATHS: LazyLock<Mutex<Vec<Directive>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[derive(Error, Debug)]
 enum ColorError {
@@ -397,6 +404,47 @@ pub fn new() -> mlua::Lua {
             })
             .unwrap();
         globals.set("env", func).unwrap();
+
+        // allow adding resouce in lua code
+        let func = lua
+            .create_function(|_, vals: mlua::Variadic<String>| -> mlua::Result<()> {
+                if vals.len() == 1 {
+                    let pattern = vals.get(0).unwrap();
+                    let pattern = glob::Pattern::new(pattern).or(Err(mlua::Error::runtime(
+                        format!("invalid glob pattern: {pattern}"),
+                    )))?;
+
+                    let dest = RelativePathBuf::from(".").normalize();
+
+                    {
+                        let mut paths = NEW_RESOURCE_PATHS.lock().unwrap();
+                        paths.push(Directive::Resource { pattern, dest })
+                    }
+
+                    Ok(())
+                } else if vals.len() == 2 {
+                    let dest = vals.get(0).unwrap();
+                    let dest = RelativePathBuf::from(dest).normalize();
+
+                    let pattern = vals.get(1).unwrap();
+                    let pattern = glob::Pattern::new(pattern).or(Err(mlua::Error::runtime(
+                        format!("invalid glob pattern: {pattern}"),
+                    )))?;
+
+                    {
+                        let mut paths = NEW_RESOURCE_PATHS.lock().unwrap();
+                        paths.push(Directive::Resource { pattern, dest })
+                    }
+
+                    Ok(())
+                } else {
+                    Err(mlua::Error::runtime(
+                        "resource(...) can only be called with 1 or 2 arguments",
+                    ))
+                }
+            })
+            .unwrap();
+        globals.set("resource", func).unwrap();
     }
 
     lua
