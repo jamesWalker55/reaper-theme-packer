@@ -18,7 +18,7 @@ serde_yaml = "0.9"
 nom_locate = "4.2"
 glob = "0.3"
 serde = { version = "1.0", features = ["derive"] }
-mlua = { version = "0.9", features = ["lua54", "vendored", "macros"] }
+mlua = { version = "0.10", features = ["lua54", "vendored", "macros"] }
 clap = { version = "4.5.3", features = ["derive"] }
 indent = "0.1.1"
 

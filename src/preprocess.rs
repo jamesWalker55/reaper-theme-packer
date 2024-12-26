@@ -235,6 +235,7 @@ impl ThemeBuilder {
                 }
             }
             mlua::Value::LightUserData(_) => todo!("LightUserData"),
+            mlua::Value::Other(..) => todo!("Other"),
             mlua::Value::Error(_) => todo!("Error"),
         }
     }

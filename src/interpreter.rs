@@ -187,7 +187,7 @@ impl LowerHex for RGBA {
 }
 
 impl mlua::UserData for RGB {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // methods
         methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
         methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
@@ -209,7 +209,7 @@ impl mlua::UserData for RGB {
 }
 
 impl mlua::UserData for RGBA {
-    fn add_methods<'lua, M: mlua::UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // methods
         methods.add_method("arr", |_, this, _value: ()| Ok(this.arr()));
         methods.add_method("with_alpha", |_, this, (alpha,): (u8,)| {
@@ -268,8 +268,8 @@ impl Color {
     }
 }
 
-impl<'lua> IntoLua<'lua> for Color {
-    fn into_lua(self, lua: &'lua mlua::Lua) -> mlua::Result<mlua::Value<'lua>> {
+impl IntoLua for Color {
+    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
         let userdata = match self {
             Color::RGB(x) => lua.create_userdata(x),
             Color::RGBA(x) => lua.create_userdata(x),
